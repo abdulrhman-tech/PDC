@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: bayt-alebaa-pdc
+    runtime: python
+    buildCommand: |
+      cd data_center/pdc_frontend && npm install && npm run build && cd ../pdc_backend && pip install -r requirements.txt
+    startCommand: >
+      cd data_center/pdc_backend &&
+      python manage.py migrate --noinput &&
+      python manage.py collectstatic --noinput &&
+      gunicorn pdc_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: pdc_backend.settings.production
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: "*"
+      - key: SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: KIE_AI_API_KEY
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_PUBLIC_URL
+        sync: false
