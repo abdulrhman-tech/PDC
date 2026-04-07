@@ -83,8 +83,8 @@ WSGI_APPLICATION = 'pdc_backend.wsgi.application'
 import dj_database_url as _dj_db_url
 
 _DATABASE_URL = config(
-    'NEON_DATABASE_URL',
-    default=None,
+    'DATABASE_URL',
+    default=config('NEON_DATABASE_URL', default=None),
 )
 
 if _DATABASE_URL:
