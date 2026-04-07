@@ -40,9 +40,19 @@ data_center/
 - **Start application** — Frontend (Vite) on port 5000
 - **Backend API** — Django dev server on port 8000
 
+## Deployment (Render)
+- **URL**: `bayt-alebaa-pdc.onrender.com`
+- **Config**: `render.yaml` (blueprint)
+- **Runtime**: Python 3.14 (Render default) + Node.js (for frontend build)
+- **Database driver**: `psycopg[binary]>=3.2.0` (psycopg3 — supports Python 3.14)
+- **Build**: `pip install requirements.txt` → `npm install && npm run build` (React SPA)
+- **Start**: `migrate` → `collectstatic` → `gunicorn` on `$PORT`
+- **Django serves React SPA** via WhiteNoise (`WHITENOISE_ROOT` points to `pdc_frontend/dist`)
+- **Database reads `DATABASE_URL`** (Render standard) with `NEON_DATABASE_URL` fallback (Replit)
+
 ## Environment Variables (configured)
-- `NEON_DATABASE_URL` — Neon PostgreSQL connection string
-- `DJANGO_SETTINGS_MODULE` — pdc_backend.settings.development
+- `DATABASE_URL` / `NEON_DATABASE_URL` — Neon PostgreSQL connection string (Django reads DATABASE_URL first, falls back to NEON_DATABASE_URL)
+- `DJANGO_SETTINGS_MODULE` — pdc_backend.settings.development (local) / pdc_backend.settings.production (Render)
 - `SECRET_KEY` — Django secret key
 - `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_ENDPOINT_URL`, `R2_TOKEN`
 - `REMOVEBG_API_KEY` — Remove.bg API key
@@ -110,3 +120,7 @@ data_center/
 - `rembg` is optional — not in requirements.txt. Uses Remove.bg API as fallback.
 - `apps.catalog_gen` module referenced in original code but not yet implemented — removed from INSTALLED_APPS and URLs.
 - `GEMINI_API_KEY` not yet configured — needs a real Google AI key.
+- **GitHub repo**: `github.com/abbodebaz/datacenter.git` — clean history (no secrets in commits)
+- **Services page**: `/catalog/services` — 6 cards (PDF catalog, AI descriptions, background removal, decorative generator, branches, contact)
+- **Branches page**: `/branches` — 12 branches with region filter
+- **Contact page**: `/contact` — phone/WhatsApp/email + social media
