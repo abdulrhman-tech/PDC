@@ -245,6 +245,7 @@ SAP_CONFIG = {
     'TIMEOUT': 30,
     'VERIFY_SSL': config('SAP_VERIFY_SSL', default=False, cast=bool),
     'PROXY_URL': config('SAP_PROXY_URL', default=''),
+    'PROXY_SECRET': config('SAP_PROXY_SECRET', default=''),
 }
 
 # Image upload settings

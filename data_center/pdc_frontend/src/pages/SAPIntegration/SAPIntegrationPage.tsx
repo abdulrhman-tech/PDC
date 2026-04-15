@@ -284,13 +284,19 @@ export default function SAPIntegrationPage() {
                             <X size={14} />
                         </button>
                     </div>
-                    {diagnoseResult.error && !diagnoseResult.dns && (
+                    {diagnoseResult.error && !diagnoseResult.dns && !diagnoseResult.proxy_tcp && (
                         <div className="sap-error-box" style={{ marginBottom: 0 }}>{diagnoseResult.error}</div>
                     )}
                     {diagnoseResult.host && (
                         <div className="sap-diagnose-grid">
                             <div className="sap-diagnose-item">
-                                <span className="diag-label">السيرفر</span>
+                                <span className="diag-label">الوضع</span>
+                                <span className="diag-value">
+                                    {diagnoseResult.mode === 'proxy' ? '🔀 عبر Proxy' : '🔗 اتصال مباشر'}
+                                </span>
+                            </div>
+                            <div className="sap-diagnose-item">
+                                <span className="diag-label">سيرفر SAP</span>
                                 <span className="diag-value" style={{ direction: 'ltr' }}>
                                     {diagnoseResult.host}:{diagnoseResult.port}
                                 </span>
@@ -301,44 +307,65 @@ export default function SAPIntegrationPage() {
                                     {diagnoseResult.has_credentials ? '✅ موجودة' : '❌ مفقودة'}
                                 </span>
                             </div>
-                            <div className="sap-diagnose-item">
-                                <span className="diag-label">DNS</span>
-                                <span className={`diag-status ${diagnoseResult.dns?.status === 'ok' ? 'ok' : 'fail'}`}>
-                                    {diagnoseResult.dns?.status === 'ok'
-                                        ? `✅ ${diagnoseResult.dns.ip}`
-                                        : `❌ ${diagnoseResult.dns?.error || 'فشل'}`
-                                    }
-                                </span>
-                            </div>
-                            <div className="sap-diagnose-item">
-                                <span className="diag-label">TCP Port {diagnoseResult.port}</span>
-                                <span className={`diag-status ${diagnoseResult.tcp?.status === 'ok' ? 'ok' : 'fail'}`}>
-                                    {diagnoseResult.tcp?.status === 'ok'
-                                        ? `✅ مفتوح (${diagnoseResult.tcp.time}s)`
-                                        : `❌ ${diagnoseResult.tcp?.error || 'محجوب'}`
-                                    }
-                                </span>
-                            </div>
-                            {diagnoseResult.has_proxy && diagnoseResult.proxy_tcp && (
-                                <div className="sap-diagnose-item">
-                                    <span className="diag-label">Proxy TCP</span>
-                                    <span className={`diag-status ${diagnoseResult.proxy_tcp?.status === 'ok' ? 'ok' : 'fail'}`}>
-                                        {diagnoseResult.proxy_tcp?.status === 'ok'
-                                            ? `✅ مفتوح`
-                                            : `❌ ${diagnoseResult.proxy_tcp?.error || 'محجوب'}`
-                                        }
-                                    </span>
-                                </div>
+
+                            {diagnoseResult.mode === 'proxy' ? (
+                                <>
+                                    <div className="sap-diagnose-item">
+                                        <span className="diag-label">Proxy URL</span>
+                                        <span className="diag-value" style={{ direction: 'ltr', fontSize: 12 }}>
+                                            {diagnoseResult.proxy_url}
+                                        </span>
+                                    </div>
+                                    <div className="sap-diagnose-item">
+                                        <span className="diag-label">Proxy TCP</span>
+                                        <span className={`diag-status ${diagnoseResult.proxy_tcp?.status === 'ok' ? 'ok' : 'fail'}`}>
+                                            {diagnoseResult.proxy_tcp?.status === 'ok'
+                                                ? `✅ متصل (${diagnoseResult.proxy_tcp.time}s)`
+                                                : `❌ ${diagnoseResult.proxy_tcp?.error || 'محجوب'}`
+                                            }
+                                        </span>
+                                    </div>
+                                    <div className="sap-diagnose-item">
+                                        <span className="diag-label">Proxy → SAP</span>
+                                        <span className={`diag-status ${diagnoseResult.proxy_sap?.status === 'ok' ? 'ok' : 'fail'}`}>
+                                            {diagnoseResult.proxy_sap?.status === 'ok'
+                                                ? `✅ HTTP ${diagnoseResult.proxy_sap.http_status} (${diagnoseResult.proxy_sap.time}s)`
+                                                : `❌ ${diagnoseResult.proxy_sap?.error?.substring(0, 120) || 'فشل'}`
+                                            }
+                                        </span>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="sap-diagnose-item">
+                                        <span className="diag-label">DNS</span>
+                                        <span className={`diag-status ${diagnoseResult.dns?.status === 'ok' ? 'ok' : 'fail'}`}>
+                                            {diagnoseResult.dns?.status === 'ok'
+                                                ? `✅ ${diagnoseResult.dns.ip}`
+                                                : `❌ ${diagnoseResult.dns?.error || 'فشل'}`
+                                            }
+                                        </span>
+                                    </div>
+                                    <div className="sap-diagnose-item">
+                                        <span className="diag-label">TCP Port {diagnoseResult.port}</span>
+                                        <span className={`diag-status ${diagnoseResult.tcp?.status === 'ok' ? 'ok' : 'fail'}`}>
+                                            {diagnoseResult.tcp?.status === 'ok'
+                                                ? `✅ مفتوح (${diagnoseResult.tcp.time}s)`
+                                                : `❌ ${diagnoseResult.tcp?.error || 'محجوب'}`
+                                            }
+                                        </span>
+                                    </div>
+                                    <div className="sap-diagnose-item">
+                                        <span className="diag-label">HTTPS</span>
+                                        <span className={`diag-status ${diagnoseResult.https?.status === 'ok' ? 'ok' : 'fail'}`}>
+                                            {diagnoseResult.https?.status === 'ok'
+                                                ? `✅ HTTP ${diagnoseResult.https.http_status} (${diagnoseResult.https.time}s)`
+                                                : `❌ ${diagnoseResult.https?.error?.substring(0, 120) || 'فشل'}`
+                                            }
+                                        </span>
+                                    </div>
+                                </>
                             )}
-                            <div className="sap-diagnose-item">
-                                <span className="diag-label">HTTPS</span>
-                                <span className={`diag-status ${diagnoseResult.https?.status === 'ok' ? 'ok' : 'fail'}`}>
-                                    {diagnoseResult.https?.status === 'ok'
-                                        ? `✅ HTTP ${diagnoseResult.https.http_status} (${diagnoseResult.https.time}s)`
-                                        : `❌ ${diagnoseResult.https?.error?.substring(0, 120) || 'فشل'}`
-                                    }
-                                </span>
-                            </div>
                         </div>
                     )}
                 </div>

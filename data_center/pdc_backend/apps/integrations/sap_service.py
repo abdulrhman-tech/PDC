@@ -22,27 +22,38 @@ class SAPService:
         self.verify_ssl = settings.SAP_CONFIG['VERIFY_SSL']
         proxy_url = settings.SAP_CONFIG.get('PROXY_URL', '')
         self.proxy_base = proxy_url.rstrip('/') if proxy_url else ''
+        self.proxy_secret = settings.SAP_CONFIG.get('PROXY_SECRET', '')
+        self.env_param = 'dev' if env == 'DEV' else 'prd'
 
     def _build_url(self, path):
         if self.proxy_base:
             return f"{self.proxy_base}{path}"
         return f"{self.base_url}{path}"
 
+    def _build_params(self, params):
+        if self.proxy_base:
+            params['env'] = self.env_param
+        return params
+
     def _get_client(self):
+        headers = {}
+        if self.proxy_base and self.proxy_secret:
+            headers['X-Proxy-Secret'] = self.proxy_secret
         return httpx.Client(
             auth=(self.username, self.password),
             verify=self.verify_ssl,
             timeout=self.timeout,
             follow_redirects=True,
+            headers=headers,
         )
 
     def test_connection(self):
         url = self._build_url('/sap/opu/odata/sap/Z_PDC_GET_HIERARCHY_SRV/EtHierarchySet')
-        params = {
+        params = self._build_params({
             'sap-client': self.client,
             '$top': 1,
             '$format': 'json',
-        }
+        })
         start = time.time()
         try:
             with self._get_client() as client:
@@ -58,6 +69,7 @@ class SAPService:
                 'sample_count': count,
                 'environment': settings.SAP_CONFIG['ACTIVE_ENV'],
                 'base_url': self.proxy_base or self.base_url,
+                'mode': 'proxy' if self.proxy_base else 'direct',
             }
         except httpx.ConnectError as e:
             elapsed = round(time.time() - start, 2)
@@ -69,6 +81,7 @@ class SAPService:
                 'response_time': elapsed,
                 'environment': settings.SAP_CONFIG['ACTIVE_ENV'],
                 'base_url': self.proxy_base or self.base_url,
+                'mode': 'proxy' if self.proxy_base else 'direct',
             }
         except httpx.TimeoutException:
             elapsed = round(time.time() - start, 2)
@@ -78,6 +91,7 @@ class SAPService:
                 'response_time': elapsed,
                 'environment': settings.SAP_CONFIG['ACTIVE_ENV'],
                 'base_url': self.proxy_base or self.base_url,
+                'mode': 'proxy' if self.proxy_base else 'direct',
             }
         except httpx.HTTPStatusError as e:
             elapsed = round(time.time() - start, 2)
@@ -88,6 +102,7 @@ class SAPService:
                 'response_time': elapsed,
                 'environment': settings.SAP_CONFIG['ACTIVE_ENV'],
                 'base_url': self.proxy_base or self.base_url,
+                'mode': 'proxy' if self.proxy_base else 'direct',
             }
         except Exception as e:
             elapsed = round(time.time() - start, 2)
@@ -99,15 +114,16 @@ class SAPService:
                 'response_time': elapsed,
                 'environment': settings.SAP_CONFIG['ACTIVE_ENV'],
                 'base_url': self.proxy_base or self.base_url,
+                'mode': 'proxy' if self.proxy_base else 'direct',
             }
 
     def get_hierarchy(self):
         url = self._build_url('/sap/opu/odata/sap/Z_PDC_GET_HIERARCHY_SRV/EtHierarchySet')
-        params = {
+        params = self._build_params({
             'sap-client': self.client,
             '$expand': 'ToAttributes',
             '$format': 'json',
-        }
+        })
         with self._get_client() as client:
             resp = client.get(url, params=params)
         resp.raise_for_status()
@@ -133,6 +149,31 @@ class SAPService:
 
         return cleaned
 
+    def get_product(self, material_number):
+        url = self._build_url(f"/sap/opu/odata/sap/Z_PDC_INTEGRATION_SRV_SRV/ProductSet('{material_number}')")
+        params = self._build_params({
+            'sap-client': self.client,
+            '$expand': 'ToAttributes,ToHierarcy/AttrHierarcy',
+            '$format': 'json',
+        })
+        with self._get_client() as client:
+            resp = client.get(url, params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_products_by_date(self, date_from, date_to):
+        url = self._build_url('/sap/opu/odata/sap/Z_PDC_INTEGRATION_SRV_SRV/ProductSet')
+        params = self._build_params({
+            'sap-client': self.client,
+            '$filter': f"CreatedDate ge datetime'{date_from}' and CreatedDate le datetime'{date_to}'",
+            '$expand': 'ToAttributes,ToHierarcy/AttrHierarcy',
+            '$format': 'json',
+        })
+        with self._get_client() as client:
+            resp = client.get(url, params=params, timeout=60)
+        resp.raise_for_status()
+        return resp.json()
+
     @staticmethod
     def diagnose_connection():
         cfg = settings.SAP_CONFIG
@@ -141,65 +182,97 @@ class SAPService:
         parsed = urlparse(cfg[env]['BASE_URL'])
         host = parsed.hostname
         port = parsed.port or 443
+        proxy_url = cfg.get('PROXY_URL', '')
+        using_proxy = bool(proxy_url)
+
         results = {
             'environment': env,
             'host': host,
             'port': port,
             'has_credentials': bool(cfg['USERNAME'] and cfg['PASSWORD']),
-            'has_proxy': bool(cfg.get('PROXY_URL', '')),
+            'has_proxy': using_proxy,
+            'mode': 'proxy' if using_proxy else 'direct',
         }
 
-        start = time.time()
-        try:
-            ip = socket.gethostbyname(host)
-            results['dns'] = {'status': 'ok', 'ip': ip, 'time': round(time.time() - start, 3)}
-        except socket.gaierror as e:
-            results['dns'] = {'status': 'fail', 'error': str(e), 'time': round(time.time() - start, 3)}
-            return results
-
-        start = time.time()
-        try:
-            sock = socket.create_connection((host, port), timeout=10)
-            sock.close()
-            results['tcp'] = {'status': 'ok', 'time': round(time.time() - start, 3)}
-        except (socket.timeout, ConnectionRefusedError, OSError) as e:
-            results['tcp'] = {'status': 'fail', 'error': str(e), 'time': round(time.time() - start, 3)}
-
-        proxy_url = cfg.get('PROXY_URL', '')
-        if proxy_url:
+        if using_proxy:
             proxy_parsed = urlparse(proxy_url)
             proxy_host = proxy_parsed.hostname
             proxy_port = proxy_parsed.port or 443
+            results['proxy_url'] = proxy_url
+            results['proxy_host'] = proxy_host
+            results['proxy_port'] = proxy_port
+
             start = time.time()
             try:
                 sock = socket.create_connection((proxy_host, proxy_port), timeout=10)
                 sock.close()
-                results['proxy_tcp'] = {'status': 'ok', 'host': proxy_host, 'port': proxy_port, 'time': round(time.time() - start, 3)}
+                results['proxy_tcp'] = {'status': 'ok', 'time': round(time.time() - start, 3)}
             except (socket.timeout, ConnectionRefusedError, OSError) as e:
-                results['proxy_tcp'] = {'status': 'fail', 'host': proxy_host, 'port': proxy_port, 'error': str(e), 'time': round(time.time() - start, 3)}
+                results['proxy_tcp'] = {'status': 'fail', 'error': str(e), 'time': round(time.time() - start, 3)}
 
-        start = time.time()
-        test_url = f"https://{host}:{port}/sap/opu/odata/sap/Z_PDC_GET_HIERARCHY_SRV/$metadata"
-        if proxy_url:
+            env_param = 'dev' if env == 'DEV' else 'prd'
             test_url = f"{proxy_url.rstrip('/')}/sap/opu/odata/sap/Z_PDC_GET_HIERARCHY_SRV/$metadata"
-        try:
-            with httpx.Client(
-                auth=(cfg['USERNAME'], cfg['PASSWORD']),
-                verify=cfg['VERIFY_SSL'],
-                timeout=15,
-            ) as client:
-                resp = client.get(test_url, params={'sap-client': cfg[env]['CLIENT']})
-            results['https'] = {
-                'status': 'ok',
-                'http_status': resp.status_code,
-                'time': round(time.time() - start, 3),
-            }
-        except Exception as e:
-            results['https'] = {
-                'status': 'fail',
-                'error': str(e)[:300],
-                'time': round(time.time() - start, 3),
-            }
+            proxy_secret = cfg.get('PROXY_SECRET', '')
+            proxy_headers = {}
+            if proxy_secret:
+                proxy_headers['X-Proxy-Secret'] = proxy_secret
+            start = time.time()
+            try:
+                with httpx.Client(
+                    auth=(cfg['USERNAME'], cfg['PASSWORD']),
+                    verify=cfg['VERIFY_SSL'],
+                    timeout=15,
+                    headers=proxy_headers,
+                ) as client:
+                    resp = client.get(test_url, params={'sap-client': cfg[env]['CLIENT'], 'env': env_param})
+                results['proxy_sap'] = {
+                    'status': 'ok',
+                    'http_status': resp.status_code,
+                    'time': round(time.time() - start, 3),
+                }
+            except Exception as e:
+                results['proxy_sap'] = {
+                    'status': 'fail',
+                    'error': str(e)[:300],
+                    'time': round(time.time() - start, 3),
+                }
+        else:
+            start = time.time()
+            try:
+                ip = socket.gethostbyname(host)
+                results['dns'] = {'status': 'ok', 'ip': ip, 'time': round(time.time() - start, 3)}
+            except socket.gaierror as e:
+                results['dns'] = {'status': 'fail', 'error': str(e), 'time': round(time.time() - start, 3)}
+                return results
+
+            start = time.time()
+            try:
+                sock = socket.create_connection((host, port), timeout=10)
+                sock.close()
+                results['tcp'] = {'status': 'ok', 'time': round(time.time() - start, 3)}
+            except (socket.timeout, ConnectionRefusedError, OSError) as e:
+                results['tcp'] = {'status': 'fail', 'error': str(e), 'time': round(time.time() - start, 3)}
+
+            start = time.time()
+            test_url = f"https://{host}:{port}/sap/opu/odata/sap/Z_PDC_GET_HIERARCHY_SRV/$metadata"
+            try:
+                with httpx.Client(
+                    auth=(cfg['USERNAME'], cfg['PASSWORD']),
+                    verify=cfg['VERIFY_SSL'],
+                    timeout=15,
+                ) as client:
+                    resp = client.get(test_url, params={'sap-client': cfg[env]['CLIENT']})
+                results['https'] = {
+                    'status': 'ok',
+                    'http_status': resp.status_code,
+                    'time': round(time.time() - start, 3),
+                }
+            except Exception as e:
+                results['https'] = {
+                    'status': 'fail',
+                    'error': str(e)[:300],
+                    'time': round(time.time() - start, 3),
+                }
 
         return results
 
