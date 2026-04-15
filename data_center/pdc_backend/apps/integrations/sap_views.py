@@ -35,6 +35,21 @@ def test_connection(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsSuperAdmin])
+def diagnose_connection(request):
+    try:
+        from apps.integrations.sap_service import SAPService
+        result = SAPService.diagnose_connection()
+    except Exception as e:
+        logger.exception("SAP diagnose failed")
+        return Response(
+            {'error': 'فشل التشخيص', 'detail': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    return Response(result)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsSuperAdmin])
 def get_hierarchy(request):
     try:
         svc = _get_sap_service()

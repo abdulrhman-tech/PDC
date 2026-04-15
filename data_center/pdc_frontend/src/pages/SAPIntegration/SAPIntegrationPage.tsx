@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react'
 import { sapAPI } from '@/api/client'
 import {
     Link2, RefreshCw, ChevronLeft, Download, Search,
-    X, Loader2, FolderTree, FileText, Database,
+    X, Loader2, FolderTree, FileText, Database, Stethoscope,
 } from 'lucide-react'
 import './SAPIntegrationPage.css'
 
@@ -59,6 +59,9 @@ export default function SAPIntegrationPage() {
     const [syncResult, setSyncResult] = useState<SyncSummary | null>(null)
     const [syncError, setSyncError] = useState('')
 
+    const [diagnosing, setDiagnosing] = useState(false)
+    const [diagnoseResult, setDiagnoseResult] = useState<any>(null)
+
     const handleTestConnection = useCallback(async () => {
         setTesting(true)
         try {
@@ -69,6 +72,19 @@ export default function SAPIntegrationPage() {
             setConnectionStatus(d || { connected: false, error: 'فشل الاتصال' })
         } finally {
             setTesting(false)
+        }
+    }, [])
+
+    const handleDiagnose = useCallback(async () => {
+        setDiagnosing(true)
+        setDiagnoseResult(null)
+        try {
+            const { data } = await sapAPI.diagnose()
+            setDiagnoseResult(data)
+        } catch (e: any) {
+            setDiagnoseResult({ error: e?.response?.data?.error || 'فشل التشخيص' })
+        } finally {
+            setDiagnosing(false)
         }
     }, [])
 
@@ -239,11 +255,92 @@ export default function SAPIntegrationPage() {
                     }
                     اختبار الاتصال
                 </button>
+
+                <button
+                    className="sap-test-btn"
+                    onClick={handleDiagnose}
+                    disabled={diagnosing}
+                >
+                    {diagnosing
+                        ? <Loader2 size={14} className="spin-icon" style={{ animation: 'sapSpin 1s linear infinite' }} />
+                        : <Stethoscope size={14} />
+                    }
+                    تشخيص الاتصال
+                </button>
             </div>
 
             {connectionStatus && !connectionStatus.connected && connectionStatus.detail && (
                 <div className="sap-error-box">
                     {connectionStatus.detail}
+                </div>
+            )}
+
+            {diagnoseResult && (
+                <div className="sap-diagnose-results">
+                    <div className="sap-diagnose-header">
+                        <Stethoscope size={16} />
+                        <span>نتائج التشخيص</span>
+                        <button className="sap-detail-close" onClick={() => setDiagnoseResult(null)}>
+                            <X size={14} />
+                        </button>
+                    </div>
+                    {diagnoseResult.error && !diagnoseResult.dns && (
+                        <div className="sap-error-box" style={{ marginBottom: 0 }}>{diagnoseResult.error}</div>
+                    )}
+                    {diagnoseResult.host && (
+                        <div className="sap-diagnose-grid">
+                            <div className="sap-diagnose-item">
+                                <span className="diag-label">السيرفر</span>
+                                <span className="diag-value" style={{ direction: 'ltr' }}>
+                                    {diagnoseResult.host}:{diagnoseResult.port}
+                                </span>
+                            </div>
+                            <div className="sap-diagnose-item">
+                                <span className="diag-label">بيانات الدخول</span>
+                                <span className={`diag-status ${diagnoseResult.has_credentials ? 'ok' : 'fail'}`}>
+                                    {diagnoseResult.has_credentials ? '✅ موجودة' : '❌ مفقودة'}
+                                </span>
+                            </div>
+                            <div className="sap-diagnose-item">
+                                <span className="diag-label">DNS</span>
+                                <span className={`diag-status ${diagnoseResult.dns?.status === 'ok' ? 'ok' : 'fail'}`}>
+                                    {diagnoseResult.dns?.status === 'ok'
+                                        ? `✅ ${diagnoseResult.dns.ip}`
+                                        : `❌ ${diagnoseResult.dns?.error || 'فشل'}`
+                                    }
+                                </span>
+                            </div>
+                            <div className="sap-diagnose-item">
+                                <span className="diag-label">TCP Port {diagnoseResult.port}</span>
+                                <span className={`diag-status ${diagnoseResult.tcp?.status === 'ok' ? 'ok' : 'fail'}`}>
+                                    {diagnoseResult.tcp?.status === 'ok'
+                                        ? `✅ مفتوح (${diagnoseResult.tcp.time}s)`
+                                        : `❌ ${diagnoseResult.tcp?.error || 'محجوب'}`
+                                    }
+                                </span>
+                            </div>
+                            {diagnoseResult.has_proxy && diagnoseResult.proxy_tcp && (
+                                <div className="sap-diagnose-item">
+                                    <span className="diag-label">Proxy TCP</span>
+                                    <span className={`diag-status ${diagnoseResult.proxy_tcp?.status === 'ok' ? 'ok' : 'fail'}`}>
+                                        {diagnoseResult.proxy_tcp?.status === 'ok'
+                                            ? `✅ مفتوح`
+                                            : `❌ ${diagnoseResult.proxy_tcp?.error || 'محجوب'}`
+                                        }
+                                    </span>
+                                </div>
+                            )}
+                            <div className="sap-diagnose-item">
+                                <span className="diag-label">HTTPS</span>
+                                <span className={`diag-status ${diagnoseResult.https?.status === 'ok' ? 'ok' : 'fail'}`}>
+                                    {diagnoseResult.https?.status === 'ok'
+                                        ? `✅ HTTP ${diagnoseResult.https.http_status} (${diagnoseResult.https.time}s)`
+                                        : `❌ ${diagnoseResult.https?.error?.substring(0, 120) || 'فشل'}`
+                                    }
+                                </span>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

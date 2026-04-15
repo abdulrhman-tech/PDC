@@ -206,6 +206,7 @@ export const decorativeAPI = {
 
 export const sapAPI = {
     testConnection: () => api.get('/sap/test-connection/'),
+    diagnose: () => api.get('/sap/diagnose/'),
     hierarchy: () => api.get('/sap/hierarchy/'),
     syncHierarchy: (dryRun = false) =>
         api.post(`/sap/hierarchy/sync/${dryRun ? '?dry_run=true' : ''}`),
