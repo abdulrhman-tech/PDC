@@ -27,6 +27,7 @@ import DecorativeGeneratorPage from '@/pages/DecorativeGenerator/DecorativeGener
 import ServicesPage from '@/pages/Services/ServicesPage'
 import BranchesPage from '@/pages/Branches/BranchesPage'
 import ContactPage from '@/pages/Contact/ContactPage'
+import SAPIntegrationPage from '@/pages/SAPIntegration/SAPIntegrationPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
     const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -236,6 +237,18 @@ export default function App() {
                             <RequireAuth>
                                 <RequireSuperAdmin>
                                     <DecorativeGeneratorPage />
+                                </RequireSuperAdmin>
+                            </RequireAuth>
+                        }
+                    />
+
+                    {/* Screen 15: SAP Integration — super admin only */}
+                    <Route
+                        path="sap-integration"
+                        element={
+                            <RequireAuth>
+                                <RequireSuperAdmin>
+                                    <SAPIntegrationPage />
                                 </RequireSuperAdmin>
                             </RequireAuth>
                         }

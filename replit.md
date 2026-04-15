@@ -124,3 +124,4 @@ data_center/
 - **Services page**: `/catalog/services` — 6 cards (PDF catalog, AI descriptions, background removal, decorative generator, branches, contact)
 - **Branches page**: `/branches` — 12 branches with region filter
 - **Contact page**: `/contact` — phone/WhatsApp/email + social media
+- **SAP Integration page**: `/sap-integration` — admin-only page for connecting to SAP OData APIs. Phase 1: hierarchy tree view (fetch, display, search/filter, sync to local DB). Backend: `apps/integrations/sap_service.py` + `sap_views.py` + `sap_urls.py`. Endpoints: `GET /api/v1/sap/test-connection/`, `GET /api/v1/sap/hierarchy/`, `POST /api/v1/sap/hierarchy/sync/`. Env vars: `SAP_USERNAME`, `SAP_PASSWORD`, `SAP_ACTIVE_ENV` (DEV/PRD)

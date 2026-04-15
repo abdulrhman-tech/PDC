@@ -77,6 +77,7 @@ urlpatterns = [
         path('logs/', include('apps.logs.urls')),
         path('settings/', include('apps.settings_app.urls')),
         path('decorative/', include('apps.images.urls')),
+        path('sap/', include('apps.integrations.sap_urls')),
     ])),
 
     # API Docs

@@ -8,7 +8,7 @@ import {
     CheckSquare, ScrollText, Users, LogOut,
     Bell, LogIn, Layers, Settings2, Inbox,
     ChevronRight, ChevronLeft, BookOpen,
-    Menu, X, Sun, Moon, Wand2,
+    Menu, X, Sun, Moon, Wand2, Link2,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useThemeStore } from '@/store/themeStore'
@@ -27,6 +27,7 @@ const navItems = [
     { to: '/users',       label: 'إدارة المستخدمين', icon: Users,       key: 'users',       needsAdmin: true },
     { to: '/categories',  label: 'إدارة التصنيفات',      icon: Layers,      key: 'categories',  needsAdmin: true },
     { to: '/decorative-generator', label: 'توليد صور ديكورية', icon: Wand2, key: 'decorative-generator', needsAdmin: true },
+    { to: '/sap-integration', label: 'ربط SAP', icon: Link2, key: 'sap-integration', needsAdmin: true },
     { to: '/settings',    label: 'الإعدادات',          icon: Settings2,   key: 'settings',    needsAdmin: true },
 ]
 

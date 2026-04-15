@@ -203,3 +203,10 @@ export const decorativeAPI = {
     generateMulti: (data: object) =>
         api.post('/decorative/generate-multi/', data),
 }
+
+export const sapAPI = {
+    testConnection: () => api.get('/sap/test-connection/'),
+    hierarchy: () => api.get('/sap/hierarchy/'),
+    syncHierarchy: (dryRun = false) =>
+        api.post(`/sap/hierarchy/sync/${dryRun ? '?dry_run=true' : ''}`),
+}

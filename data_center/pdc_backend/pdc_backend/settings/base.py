@@ -229,6 +229,23 @@ USE_TZ = True
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# SAP OData Integration
+SAP_CONFIG = {
+    'DEV': {
+        'BASE_URL': 'https://fiori01.baytalebaa.com:8323',
+        'CLIENT': '300',
+    },
+    'PRD': {
+        'BASE_URL': 'https://fiori01.baytalebaa.com:8325',
+        'CLIENT': '300',
+    },
+    'ACTIVE_ENV': config('SAP_ACTIVE_ENV', default='DEV'),
+    'USERNAME': config('SAP_USERNAME', default=''),
+    'PASSWORD': config('SAP_PASSWORD', default=''),
+    'TIMEOUT': 30,
+    'VERIFY_SSL': config('SAP_VERIFY_SSL', default=False, cast=bool),
+}
+
 # Image upload settings
 MAX_IMAGE_SIZE_MB = 10
 ALLOWED_IMAGE_FORMATS = ['jpg', 'jpeg', 'png', 'webp']
