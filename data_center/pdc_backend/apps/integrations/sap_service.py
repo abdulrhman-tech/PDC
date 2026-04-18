@@ -47,6 +47,27 @@ class SAPService:
             headers=headers,
         )
 
+    def _request_with_retry(self, client, url, params, max_retries=3):
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                resp = client.get(url, params=params)
+                if resp.status_code in (520, 521, 522, 523, 524, 525, 526, 527):
+                    last_error = f'Cloudflare error {resp.status_code} (attempt {attempt + 1}/{max_retries})'
+                    logger.warning(last_error)
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)
+                        continue
+                return resp
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                last_error = f'{type(e).__name__}: {e} (attempt {attempt + 1}/{max_retries})'
+                logger.warning(last_error)
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
+        return resp
+
     def test_connection(self):
         url = self._build_url('/sap/opu/odata/sap/Z_PDC_GET_HIERARCHY_SRV/EtHierarchySet')
         params = self._build_params({
@@ -57,7 +78,7 @@ class SAPService:
         start = time.time()
         try:
             with self._get_client() as client:
-                resp = client.get(url, params=params)
+                resp = self._request_with_retry(client, url, params)
             elapsed = round(time.time() - start, 2)
             resp.raise_for_status()
             data = resp.json()
@@ -125,7 +146,7 @@ class SAPService:
             '$format': 'json',
         })
         with self._get_client() as client:
-            resp = client.get(url, params=params)
+            resp = self._request_with_retry(client, url, params)
         resp.raise_for_status()
         data = resp.json()
         results = data.get('d', {}).get('results', [])
