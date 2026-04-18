@@ -221,3 +221,8 @@ export const sapAPI = {
     syncProducts: (products: any[]) =>
         api.post('/sap/products/sync/', { products }),
 }
+
+export const translateAPI = {
+    translate: (text: string, from: string = 'ar', to: string = 'en') =>
+        api.post<{ translated: string }>('/sap/translate/', { text, from, to }),
+}

@@ -5,8 +5,8 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Save, ArrowRight, Sparkles, Loader2, Download, ChevronDown, Search as SearchIcon } from 'lucide-react'
-import { productsAPI, categoriesAPI, settingsAPI, brandsAPI, sapAPI } from '@/api/client'
+import { Save, ArrowRight, Sparkles, Loader2, Download, ChevronDown, Search as SearchIcon, Languages } from 'lucide-react'
+import { productsAPI, categoriesAPI, settingsAPI, brandsAPI, sapAPI, translateAPI } from '@/api/client'
 import { toast } from 'react-toastify'
 import type { AttributeSchemaItem } from '@/types'
 import ImageManager from '@/components/ImageManager/ImageManager'
@@ -33,10 +33,8 @@ export default function ProductFormPage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [form, setForm] = useState<Record<string, any>>({
         product_name_ar: '', product_name_en: '', sku: '',
-        category: '', brand: '', origin_country: '', status: 'مسودة',
-        inventory_type: 'دوري', color: '', description_ar: '', description_en: '',
-        ecommerce_url: '', attributes: {},
     })
+    const [translatingName, setTranslatingName] = useState(false)
     const [attrSchema, setAttrSchema] = useState<AttributeSchemaItem[]>([])
     const [generatingDesc, setGeneratingDesc] = useState(false)
 
@@ -405,7 +403,52 @@ export default function ProductFormPage() {
                         </div>
 
                         <div className="form-group">
-                            <label className="form-label">Product Name in English</label>
+                            <label className="form-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                <span>Product Name in English</span>
+                                <button
+                                    type="button"
+                                    title="ترجمة من العربية"
+                                    disabled={!form.product_name_ar.trim() || translatingName}
+                                    onClick={async () => {
+                                        const src = form.product_name_ar.trim()
+                                        if (!src) return
+                                        if (form.product_name_en.trim()) {
+                                            if (!window.confirm('الحقل فيه نص. استبدال؟')) return
+                                        }
+                                        try {
+                                            setTranslatingName(true)
+                                            const { data } = await translateAPI.translate(src, 'ar', 'en')
+                                            const out = (data?.translated || '').trim()
+                                            if (!out) {
+                                                toast.error('فشلت الترجمة')
+                                                return
+                                            }
+                                            set('product_name_en', out)
+                                            toast.success('تمت الترجمة')
+                                        } catch (e: any) {
+                                            toast.error(e?.response?.data?.error || 'فشلت الترجمة')
+                                        } finally {
+                                            setTranslatingName(false)
+                                        }
+                                    }}
+                                    style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                                        padding: '4px 10px', fontSize: 11, fontWeight: 600,
+                                        background: form.product_name_ar.trim() ? 'rgba(200,168,75,0.10)' : 'transparent',
+                                        color: form.product_name_ar.trim() ? 'var(--color-gold, #C8A84B)' : 'var(--color-text-muted)',
+                                        border: `1px solid ${form.product_name_ar.trim() ? 'rgba(200,168,75,0.35)' : 'var(--color-border)'}`,
+                                        borderRadius: 6,
+                                        cursor: form.product_name_ar.trim() && !translatingName ? 'pointer' : 'not-allowed',
+                                        fontFamily: 'inherit',
+                                        opacity: form.product_name_ar.trim() ? 1 : 0.55,
+                                    }}
+                                >
+                                    {translatingName
+                                        ? <Loader2 size={12} className="spin" />
+                                        : <Languages size={12} />}
+                                    <span>ترجمة</span>
+                                </button>
+                            </label>
                             <input className="form-input" value={form.product_name_en}
                                 onChange={e => set('product_name_en', e.target.value)}
                                 placeholder="White Matte Porcelain Tile" style={{ direction: 'ltr', textAlign: 'left' }} />

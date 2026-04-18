@@ -1,7 +1,8 @@
 from django.urls import path
-from apps.integrations import sap_views
+from apps.integrations import sap_views, translate_views
 
 urlpatterns = [
+    path('translate/', translate_views.translate_text, name='translate-text'),
     path('test-connection/', sap_views.test_connection, name='sap-test-connection'),
     path('diagnose/', sap_views.diagnose_connection, name='sap-diagnose'),
     path('hierarchy/', sap_views.get_hierarchy, name='sap-hierarchy'),
