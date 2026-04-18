@@ -50,10 +50,20 @@ def translate_text(request):
         translated = result if isinstance(result, str) else str(result)
         translated = translated.strip().strip('"').strip("'").strip()
         if not translated:
-            return Response({'error': 'empty translation'},
+            return Response({'error': 'تعذّر استخراج الترجمة'},
                             status=status.HTTP_502_BAD_GATEWAY)
         return Response({'translated': translated})
     except Exception as exc:
-        logger.exception('Translation failed: %s', exc)
-        return Response({'error': f'Translation failed: {exc}'},
+        logger.exception('Translation failed')
+        msg = str(exc)
+        low = msg.lower()
+        if '429' in msg or 'quota' in low or 'rate' in low or 'exceeded' in low:
+            friendly = 'تجاوز الحد المسموح من Gemini حالياً. حاول بعد دقيقة أو ترجم يدوياً.'
+        elif '401' in msg or '403' in msg or 'permission' in low or 'api key' in low:
+            friendly = 'مفتاح Gemini غير صالح أو منتهي الصلاحية.'
+        elif 'timeout' in low or 'timed out' in low:
+            friendly = 'انتهت مهلة الاتصال بخدمة الترجمة. حاول مرة ثانية.'
+        else:
+            friendly = 'فشلت الترجمة. حاول مرة ثانية.'
+        return Response({'error': friendly},
                         status=status.HTTP_502_BAD_GATEWAY)
