@@ -732,3 +732,404 @@
         padding-right: 16px;
     }
 }
+
+/* ============================================================
+   Phase 2: Tabs + Product Lookup + Date Range
+   ============================================================ */
+
+.sap-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.sap-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--color-text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin-bottom: -1px;
+}
+
+.sap-tab:hover {
+    color: var(--color-text-primary);
+    background: var(--color-surface-raised);
+}
+
+.sap-tab.active {
+    color: var(--color-gold);
+    border-bottom-color: var(--color-gold);
+    background: rgba(218, 165, 32, 0.05);
+}
+
+.sap-tab-content {
+    min-height: 400px;
+}
+
+.sap-last-sync-pill {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    background: var(--color-surface-raised);
+    padding: 4px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--color-border);
+}
+
+.sap-success-box {
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    color: #4ade80;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin: 12px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+}
+
+.sap-info-pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    background: var(--color-surface-raised);
+    color: var(--color-text-secondary);
+    border: 1px solid var(--color-border);
+}
+
+.sap-info-pill.small {
+    padding: 2px 8px;
+    font-size: 11px;
+}
+
+.sap-info-pill.new {
+    background: rgba(218, 165, 32, 0.15);
+    color: var(--color-gold);
+    border-color: rgba(218, 165, 32, 0.3);
+}
+
+/* ──────── Product Lookup Tab ──────── */
+
+.sap-product-tab .sap-search-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.sap-search-input-wrap {
+    position: relative;
+    flex: 1;
+}
+
+.sap-search-icon {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-text-secondary);
+    pointer-events: none;
+}
+
+.sap-product-search-input {
+    width: 100%;
+    padding: 12px 44px 12px 16px;
+    font-size: 15px;
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    color: var(--color-text-primary);
+    direction: rtl;
+}
+
+.sap-product-search-input:focus {
+    outline: none;
+    border-color: var(--color-gold);
+    box-shadow: 0 0 0 2px rgba(218, 165, 32, 0.15);
+}
+
+.sap-product-card {
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-top: 16px;
+}
+
+.sap-product-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: 20px;
+}
+
+.sap-product-header-main {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    color: var(--color-gold);
+}
+
+.sap-product-sku {
+    font-family: ui-monospace, monospace;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.sap-product-name {
+    font-size: 14px;
+    color: var(--color-text-secondary);
+    margin-top: 4px;
+}
+
+.sap-product-status {
+    padding: 6px 14px;
+    border-radius: 14px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.sap-product-status.small {
+    padding: 3px 10px;
+    font-size: 11px;
+}
+
+.sap-product-status.active {
+    background: rgba(34, 197, 94, 0.15);
+    color: #4ade80;
+}
+
+.sap-product-status.inactive {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+}
+
+.sap-product-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.sap-product-field label {
+    display: block;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    margin-bottom: 6px;
+}
+
+.sap-product-field .value {
+    font-size: 14px;
+    color: var(--color-text-primary);
+    word-break: break-word;
+}
+
+.sap-product-field .value.mono {
+    font-family: ui-monospace, monospace;
+}
+
+.sap-product-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--color-border);
+}
+
+.sap-product-section h4 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0 0 12px;
+}
+
+.sap-hierarchy-breadcrumbs {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sap-hierarchy-crumb {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.sap-hierarchy-crumb .crumb-parent,
+.sap-hierarchy-crumb .crumb-code {
+    font-family: ui-monospace, monospace;
+    color: var(--color-text-primary);
+}
+
+.sap-hierarchy-crumb .crumb-parent {
+    color: var(--color-text-secondary);
+}
+
+.sap-hierarchy-crumb .crumb-sep {
+    color: var(--color-text-secondary);
+}
+
+.sap-hierarchy-crumb .crumb-name {
+    color: var(--color-text-secondary);
+    font-size: 12px;
+}
+
+.sap-attrs-table {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.sap-attr-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.sap-attr-row.filled {
+    background: var(--color-surface);
+}
+
+.sap-attr-row.filled .attr-value {
+    color: var(--color-text-primary);
+    font-weight: 500;
+}
+
+.sap-attr-row.empty {
+    opacity: 0.5;
+}
+
+.sap-attr-row .attr-name {
+    color: var(--color-text-secondary);
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+}
+
+.sap-attr-row .attr-value {
+    color: var(--color-text-secondary);
+}
+
+.sap-product-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--color-border);
+}
+
+/* ──────── Products by Date Tab ──────── */
+
+.sap-date-toolbar {
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.sap-date-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sap-date-input-group label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+.sap-date-input {
+    padding: 10px 14px;
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    color: var(--color-text-primary);
+    font-size: 14px;
+    direction: ltr;
+}
+
+.sap-date-input:focus {
+    outline: none;
+    border-color: var(--color-gold);
+}
+
+.sap-products-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    margin-top: 16px;
+}
+
+.sap-products-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.sap-products-table thead {
+    background: var(--color-surface-raised);
+}
+
+.sap-products-table th {
+    text-align: right;
+    padding: 12px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+}
+
+.sap-products-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text-primary);
+}
+
+.sap-products-table td.mono {
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+}
+
+.sap-products-table tbody tr {
+    cursor: pointer;
+    transition: background 0.1s ease;
+}
+
+.sap-products-table tbody tr:hover {
+    background: var(--color-surface-raised);
+}
+
+.sap-products-table tbody tr:last-child td {
+    border-bottom: none;
+}

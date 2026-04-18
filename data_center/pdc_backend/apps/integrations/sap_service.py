@@ -170,6 +170,39 @@ class SAPService:
 
         return cleaned
 
+    def _clean_product(self, item):
+        attrs_raw = item.get('ToAttributes', {}).get('results', []) if isinstance(item.get('ToAttributes'), dict) else []
+        attributes = [
+            {'name': a.get('CharName', ''), 'value': a.get('CharValue', '')}
+            for a in attrs_raw
+        ]
+
+        hierarchy_raw = item.get('ToHierarcy', {}).get('results', []) if isinstance(item.get('ToHierarcy'), dict) else []
+        hierarchy = [
+            {
+                'code': h.get('MaterialGroupCode', ''),
+                'parent_code': h.get('ParentCode', ''),
+                'name_ar': h.get('MaterialGroupNameAr', ''),
+                'name_en': h.get('MaterialGroupNameEn', ''),
+                'level': h.get('Level', 0),
+            }
+            for h in hierarchy_raw
+        ]
+
+        return {
+            'material_number': item.get('MaterialNumber', ''),
+            'description_ar': item.get('DescriptionAr', ''),
+            'description_en': item.get('DescriptionEn', ''),
+            'material_group_code': item.get('MaterialGroupCode', ''),
+            'origin_country': item.get('OriginCountry', ''),
+            'unit_of_measure': item.get('UnitOfMeasure', ''),
+            'is_active': bool(item.get('IsActive', False)),
+            'created_date': self._parse_sap_date(item.get('CreatedDate')),
+            'changed_date': self._parse_sap_date(item.get('ChangedDate')),
+            'attributes': attributes,
+            'hierarchy': hierarchy,
+        }
+
     def get_product(self, material_number):
         url = self._build_url(f"/sap/opu/odata/sap/Z_PDC_INTEGRATION_SRV_SRV/ProductSet('{material_number}')")
         params = self._build_params({
@@ -178,22 +211,33 @@ class SAPService:
             '$format': 'json',
         })
         with self._get_client() as client:
-            resp = client.get(url, params=params)
+            resp = self._request_with_retry(client, url, params)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json().get('d', {}) or {}
+        return self._clean_product(data)
 
     def get_products_by_date(self, date_from, date_to):
         url = self._build_url('/sap/opu/odata/sap/Z_PDC_INTEGRATION_SRV_SRV/ProductSet')
         params = self._build_params({
             'sap-client': self.client,
-            '$filter': f"CreatedDate ge datetime'{date_from}' and CreatedDate le datetime'{date_to}'",
+            '$filter': f"CreatedDate ge datetime'{date_from}T00:00:00' and CreatedDate le datetime'{date_to}T23:59:59'",
             '$expand': 'ToAttributes,ToHierarcy/AttrHierarcy',
             '$format': 'json',
         })
-        with self._get_client() as client:
-            resp = client.get(url, params=params, timeout=60)
+        long_timeout_client = httpx.Client(
+            auth=(self.username, self.password),
+            verify=self.verify_ssl,
+            timeout=120,
+            follow_redirects=True,
+            headers={'X-Proxy-Secret': self.proxy_secret} if (self.proxy_base and self.proxy_secret) else {},
+        )
+        try:
+            resp = self._request_with_retry(long_timeout_client, url, params)
+        finally:
+            long_timeout_client.close()
         resp.raise_for_status()
-        return resp.json()
+        results = resp.json().get('d', {}).get('results', []) or []
+        return [self._clean_product(item) for item in results]
 
     @staticmethod
     def diagnose_connection():

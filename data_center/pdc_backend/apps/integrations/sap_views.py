@@ -8,6 +8,7 @@ from rest_framework.response import Response
 
 from apps.users.views import IsSuperAdmin
 from apps.categories.models import Category
+from apps.products.models import Product, ProductStatus
 
 logger = logging.getLogger(__name__)
 
@@ -193,4 +194,197 @@ def sync_hierarchy(request):
             'created': created_count,
             'updated': updated_count,
         },
+    })
+
+
+def _attrs_to_dict(attributes):
+    return {a['name']: a['value'] for a in attributes if a.get('value')}
+
+
+def _save_or_update_product(product_data, user=None):
+    sku = product_data.get('material_number', '').strip()
+    if not sku:
+        return {'status': 'error', 'sku': sku, 'error': 'رمز الصنف مفقود'}
+
+    group_code = product_data.get('material_group_code', '').strip()
+    category = None
+    if group_code:
+        category = Category.objects.filter(code=group_code).first()
+    if not category:
+        return {
+            'status': 'error',
+            'sku': sku,
+            'error': f'التصنيف {group_code or "غير محدد"} غير موجود في النظام. قم بمزامنة التصنيفات أولاً.',
+        }
+
+    existing = Product.objects.filter(sku=sku).first()
+    attrs_dict = _attrs_to_dict(product_data.get('attributes', []))
+    name_ar = product_data.get('description_ar') or sku
+    name_en = product_data.get('description_en') or ''
+    origin = product_data.get('origin_country') or ''
+
+    if existing:
+        existing.product_name_ar = name_ar
+        existing.product_name_en = name_en
+        existing.origin_country = origin
+        existing.category = category
+        merged = dict(existing.attributes or {})
+        merged.update(attrs_dict)
+        if product_data.get('unit_of_measure'):
+            merged['unit_of_measure'] = product_data['unit_of_measure']
+        existing.attributes = merged
+        if user and user.is_authenticated:
+            existing.updated_by = user
+        existing.save()
+        return {'status': 'updated', 'sku': sku}
+
+    if attrs_dict and product_data.get('unit_of_measure'):
+        attrs_dict['unit_of_measure'] = product_data['unit_of_measure']
+
+    product = Product(
+        sku=sku,
+        product_name_ar=name_ar,
+        product_name_en=name_en,
+        category=category,
+        origin_country=origin,
+        attributes=attrs_dict,
+        status=ProductStatus.DRAFT,
+    )
+    if user and user.is_authenticated:
+        product.created_by = user
+    product.save()
+    return {'status': 'created', 'sku': sku}
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsSuperAdmin])
+def get_product(request, material_number):
+    try:
+        svc = _get_sap_service()
+        data = svc.get_product(material_number)
+        if not data.get('material_number'):
+            return Response(
+                {'error': 'الصنف غير موجود في SAP. تأكد من الرمز وحاول مرة ثانية.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        existing = Product.objects.filter(sku=data['material_number']).first()
+        data['exists_locally'] = existing is not None
+        return Response(data)
+    except Exception as e:
+        msg = str(e)
+        http_code = status.HTTP_502_BAD_GATEWAY
+        if '404' in msg:
+            http_code = status.HTTP_404_NOT_FOUND
+            user_msg = 'الصنف غير موجود في SAP. تأكد من الرمز وحاول مرة ثانية.'
+        else:
+            logger.exception("SAP get_product failed")
+            user_msg = 'فشل جلب بيانات الصنف من SAP'
+        return Response({'error': user_msg, 'detail': msg[:300]}, status=http_code)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsSuperAdmin])
+def save_product(request, material_number):
+    try:
+        svc = _get_sap_service()
+        data = svc.get_product(material_number)
+        if not data.get('material_number'):
+            return Response({'error': 'الصنف غير موجود في SAP'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.exception("SAP fetch for save failed")
+        return Response(
+            {'error': 'فشل جلب الصنف من SAP', 'detail': str(e)[:300]},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    try:
+        with transaction.atomic():
+            result = _save_or_update_product(data, request.user)
+    except Exception as e:
+        logger.exception("Save product failed")
+        return Response({'error': 'فشل حفظ الصنف', 'detail': str(e)[:300]},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    if result.get('status') == 'error':
+        return Response({'error': result['error']}, status=status.HTTP_400_BAD_REQUEST)
+
+    if result['status'] == 'created':
+        return Response({'message': f'تم إضافة الصنف {result["sku"]} بنجاح', 'created': True})
+    return Response({'message': f'تم تحديث الصنف {result["sku"]} (موجود مسبقاً)', 'created': False})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsSuperAdmin])
+def get_products_by_date(request):
+    date_from = request.query_params.get('date_from', '').strip()
+    date_to = request.query_params.get('date_to', '').strip()
+    if not date_from or not date_to:
+        return Response({'error': 'يجب تحديد التاريخين (date_from, date_to)'},
+                        status=status.HTTP_400_BAD_REQUEST)
+    try:
+        svc = _get_sap_service()
+        items = svc.get_products_by_date(date_from, date_to)
+    except Exception as e:
+        logger.exception("SAP date range fetch failed")
+        return Response(
+            {'error': 'فشل جلب الأصناف من SAP', 'detail': str(e)[:300]},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    items.sort(key=lambda x: x.get('changed_date') or '', reverse=True)
+    existing_skus = set(Product.objects.filter(
+        sku__in=[i['material_number'] for i in items if i.get('material_number')]
+    ).values_list('sku', flat=True))
+    for it in items:
+        it['exists_locally'] = it['material_number'] in existing_skus
+
+    return Response({
+        'total': len(items),
+        'date_from': date_from,
+        'date_to': date_to,
+        'items': items,
+    })
+
+
+MAX_SYNC_BATCH = 500
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsSuperAdmin])
+def sync_products(request):
+    products = request.data.get('products', [])
+    if not isinstance(products, list) or not products:
+        return Response({'error': 'يجب إرسال قائمة الأصناف (products)'},
+                        status=status.HTTP_400_BAD_REQUEST)
+    if len(products) > MAX_SYNC_BATCH:
+        return Response(
+            {'error': f'تجاوز الحد الأقصى للدفعة الواحدة ({MAX_SYNC_BATCH} صنف). قسّم العملية إلى دفعات أصغر.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    created = 0
+    updated = 0
+    errors = []
+
+    for item in products:
+        sku = (item or {}).get('material_number', '')
+        try:
+            with transaction.atomic():
+                result = _save_or_update_product(item, request.user)
+            if result['status'] == 'created':
+                created += 1
+            elif result['status'] == 'updated':
+                updated += 1
+            else:
+                errors.append({'sku': sku, 'error': result.get('error', 'فشل')})
+        except Exception as e:
+            logger.exception("Sync product failed for %s", sku)
+            errors.append({'sku': sku, 'error': str(e)[:200]})
+
+    return Response({
+        'total': len(products),
+        'created': created,
+        'updated': updated,
+        'failed': len(errors),
+        'errors': errors[:20],
     })

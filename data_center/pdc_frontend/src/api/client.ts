@@ -210,4 +210,12 @@ export const sapAPI = {
     hierarchy: () => api.get('/sap/hierarchy/'),
     syncHierarchy: (dryRun = false) =>
         api.post(`/sap/hierarchy/sync/${dryRun ? '?dry_run=true' : ''}`),
+    getProduct: (materialNumber: string) =>
+        api.get(`/sap/product/${encodeURIComponent(materialNumber)}/`),
+    saveProduct: (materialNumber: string) =>
+        api.post(`/sap/product/${encodeURIComponent(materialNumber)}/save/`),
+    getProductsByDate: (dateFrom: string, dateTo: string) =>
+        api.get(`/sap/products/?date_from=${dateFrom}&date_to=${dateTo}`),
+    syncProducts: (products: any[]) =>
+        api.post('/sap/products/sync/', { products }),
 }
