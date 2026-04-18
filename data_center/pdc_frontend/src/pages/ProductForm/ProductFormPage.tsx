@@ -434,13 +434,13 @@ export default function ProductFormPage() {
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: 4,
                                         padding: '4px 10px', fontSize: 11, fontWeight: 600,
-                                        background: form.product_name_ar.trim() ? 'rgba(200,168,75,0.10)' : 'transparent',
-                                        color: form.product_name_ar.trim() ? 'var(--color-gold, #C8A84B)' : 'var(--color-text-muted)',
-                                        border: `1px solid ${form.product_name_ar.trim() ? 'rgba(200,168,75,0.35)' : 'var(--color-border)'}`,
+                                        background: String(form.product_name_ar || '').trim() ? 'rgba(200,168,75,0.10)' : 'transparent',
+                                        color: String(form.product_name_ar || '').trim() ? 'var(--color-gold, #C8A84B)' : 'var(--color-text-muted)',
+                                        border: `1px solid ${String(form.product_name_ar || '').trim() ? 'rgba(200,168,75,0.35)' : 'var(--color-border)'}`,
                                         borderRadius: 6,
-                                        cursor: form.product_name_ar.trim() && !translatingName ? 'pointer' : 'not-allowed',
+                                        cursor: String(form.product_name_ar || '').trim() && !translatingName ? 'pointer' : 'not-allowed',
                                         fontFamily: 'inherit',
-                                        opacity: form.product_name_ar.trim() ? 1 : 0.55,
+                                        opacity: String(form.product_name_ar || '').trim() ? 1 : 0.55,
                                     }}
                                 >
                                     {translatingName
@@ -567,7 +567,7 @@ export default function ProductFormPage() {
                             onChange={e => set('description_ar', e.target.value)}
                             placeholder="أدخل وصفاً احترافياً للمنتج أو اضغط 'توليد AI' لإنشائه تلقائياً..."
                         />
-                        <p className="form-help">{form.description_ar.split(' ').filter(Boolean).length} كلمة (يُنصح بـ 60-90)</p>
+                        <p className="form-help">{String(form.description_ar || '').split(' ').filter(Boolean).length} كلمة (يُنصح بـ 60-90)</p>
 
                         <div style={{ marginTop: 14 }}>
                             <label className="form-label" style={{ fontFamily: 'var(--font-latin)', direction: 'ltr' }}>
@@ -582,7 +582,7 @@ export default function ProductFormPage() {
                                 placeholder="Enter an English product description or use 'توليد AI' to generate both..."
                             />
                             <p className="form-help" style={{ direction: 'ltr', textAlign: 'left', fontFamily: 'var(--font-latin)' }}>
-                                {form.description_en.split(' ').filter(Boolean).length} words (50–80 recommended)
+                                {String(form.description_en || '').split(' ').filter(Boolean).length} words (50–80 recommended)
                             </p>
                         </div>
                     </div>
