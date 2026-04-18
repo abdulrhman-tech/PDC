@@ -1212,3 +1212,16 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* (file shared so styles import-once via app shell — keep selector specific) */
+.cat-cascade-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+@media (max-width: 640px) {
+    .cat-cascade-grid {
+        grid-template-columns: 1fr;
+    }
+}

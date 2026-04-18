@@ -11,7 +11,7 @@ import { toast } from 'react-toastify'
 import type { AttributeSchemaItem } from '@/types'
 import ImageManager from '@/components/ImageManager/ImageManager'
 import { useAuthStore } from '@/store/authStore'
-import CategoryTreeSelect from '@/components/CategoryTreeSelect/CategoryTreeSelect'
+import CategoryCascadeSelect from '@/components/CategoryTreeSelect/CategoryCascadeSelect'
 
 export default function ProductFormPage() {
     const { id } = useParams<{ id: string }>()
@@ -252,7 +252,7 @@ export default function ProductFormPage() {
                                     </div>
                                 </div>
                             ) : (
-                                <CategoryTreeSelect
+                                <CategoryCascadeSelect
                                     value={form.category || null}
                                     onChange={id => set('category', id ?? '')}
                                     placeholder="اختر التصنيف..."
