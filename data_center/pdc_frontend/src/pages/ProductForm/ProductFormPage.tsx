@@ -5,8 +5,8 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Save, ArrowRight, Sparkles, Loader2 } from 'lucide-react'
-import { productsAPI, categoriesAPI, settingsAPI, brandsAPI } from '@/api/client'
+import { Save, ArrowRight, Sparkles, Loader2, Download } from 'lucide-react'
+import { productsAPI, categoriesAPI, settingsAPI, brandsAPI, sapAPI } from '@/api/client'
 import { toast } from 'react-toastify'
 import type { AttributeSchemaItem } from '@/types'
 import ImageManager from '@/components/ImageManager/ImageManager'
@@ -19,6 +19,12 @@ export default function ProductFormPage() {
     const isEdit = !!id
     const { user } = useAuthStore()
     const isDeptManager = user?.role === 'مدير_قسم'
+    const role = user?.role as string | undefined
+    const canFetchSap = role === 'super_admin' || role === 'مدير_نظام' || role === 'مدير_قسم'
+
+    const [sapFetching, setSapFetching] = useState(false)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [sapPending, setSapPending] = useState<any | null>(null)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [form, setForm] = useState<Record<string, any>>({
@@ -133,6 +139,146 @@ export default function ProductFormPage() {
         },
     })
 
+    const COUNTRY_CODE_TO_AR: Record<string, string> = {
+        CN: 'الصين', SA: 'السعودية', AE: 'الإمارات', IT: 'إيطاليا', ES: 'إسبانيا',
+        TR: 'تركيا', IN: 'الهند', EG: 'مصر', KR: 'كوريا', JP: 'اليابان',
+        US: 'الولايات المتحدة', DE: 'ألمانيا', FR: 'فرنسا', GB: 'بريطانيا',
+        VN: 'فيتنام', TH: 'تايلاند', MY: 'ماليزيا', ID: 'إندونيسيا', BR: 'البرازيل',
+        IR: 'إيران', PT: 'البرتغال', PK: 'باكستان', BD: 'بنغلاديش', JO: 'الأردن',
+    }
+
+    const normalizeAttrKey = (name: string): string =>
+        (name || '').toLowerCase().replace(/\s+/g, '_').slice(0, 50)
+
+    const findAttrValue = (attrs: { name: string; value: string }[], substring: string): string => {
+        const lower = substring.toLowerCase()
+        const hit = attrs.find(a => (a.name || '').toLowerCase().includes(lower) && (a.value || '').trim() !== '')
+        return hit?.value ?? ''
+    }
+
+    // Builds a patch object by mapping the SAP product to form fields.
+    // mode: 'replace' overrides everything, 'fill_empty' only sets blank fields.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const buildPatchFromSap = (sapData: any, mode: 'replace' | 'fill_empty') => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const patch: Record<string, any> = {}
+        const isEmpty = (v: unknown) => v === '' || v === null || v === undefined
+
+        const tryStr = (key: string, val: string) => {
+            if (!val) return
+            if (mode === 'replace' || isEmpty(form[key])) patch[key] = val
+        }
+
+        tryStr('product_name_ar', sapData.description_ar || '')
+        tryStr('product_name_en', sapData.description_en || '')
+
+        // Category lookup by material_group_code
+        const groupCode = sapData.material_group_code || ''
+        if (groupCode) {
+            const localCat = categoriesFlat.find((c: { code: string }) => c.code === groupCode)
+            if (localCat) {
+                if (mode === 'replace' || isEmpty(form.category)) patch.category = localCat.id
+            } else {
+                toast.warning(`التصنيف ${groupCode} غير موجود في النظام — يحتاج مزامنة`)
+            }
+        }
+
+        const attrs: { name: string; value: string }[] = sapData.attributes || []
+
+        // Brand from attributes
+        const brandName = findAttrValue(attrs, 'BRAND')
+        if (brandName) {
+            const brand = brands.find(b =>
+                (b.name_ar || '').trim() === brandName.trim() ||
+                (b.name || '').toLowerCase().trim() === brandName.toLowerCase().trim()
+            )
+            if (brand && (mode === 'replace' || isEmpty(form.brand))) patch.brand = brand.id
+        }
+
+        // Origin country (translate code if possible, then match against lookup)
+        const originRaw = sapData.origin_country || ''
+        if (originRaw) {
+            const arName = COUNTRY_CODE_TO_AR[originRaw.toUpperCase()] || originRaw
+            const country = countries.find(c => c.name_ar === arName)
+            const finalVal = country?.name_ar ?? arName
+            if (mode === 'replace' || isEmpty(form.origin_country)) patch.origin_country = finalVal
+        }
+
+        // Color from attributes
+        const colorVal = findAttrValue(attrs, 'COLOR')
+        if (colorVal) {
+            const colorObj = colors.find(c => c.name_ar === colorVal)
+            const finalColor = colorObj?.name_ar ?? colorVal
+            if (mode === 'replace' || isEmpty(form.color)) patch.color = finalColor
+        }
+
+        // Dynamic attributes — only those with non-empty values matching schema keys
+        if (attrSchema.length > 0) {
+            const schemaByKey = new Map(attrSchema.map(s => [s.field_key, s]))
+            const newAttrs = { ...(form.attributes || {}) }
+            let touched = false
+            for (const a of attrs) {
+                const value = (a.value || '').trim()
+                if (!value) continue
+                const key = normalizeAttrKey(a.name)
+                if (!schemaByKey.has(key)) continue
+                const existing = newAttrs[key]
+                if (mode === 'replace' || existing === '' || existing === undefined || existing === null) {
+                    newAttrs[key] = value
+                    touched = true
+                }
+            }
+            if (touched) patch.attributes = newAttrs
+        }
+
+        return patch
+    }
+
+    const applySapData = (
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sapData: any,
+        mode: 'replace' | 'fill_empty',
+    ) => {
+        const patch = buildPatchFromSap(sapData, mode)
+        if (Object.keys(patch).length === 0) {
+            toast.info('لا توجد بيانات جديدة للتعبئة من SAP')
+            return
+        }
+        setForm(f => ({ ...f, ...patch, sku: f.sku }))
+        toast.success(`تم جلب بيانات الصنف ${sapData.material_number || ''} من SAP`)
+    }
+
+    const handleSapFetch = async () => {
+        const sku = (form.sku || '').trim()
+        if (!sku) return toast.warning('أدخل رقم SKU أولاً')
+        setSapFetching(true)
+        try {
+            const res = await sapAPI.getProduct(sku)
+            const sapData = res.data
+            // Detect whether form already contains user data we might overwrite.
+            const baseFields = ['product_name_ar', 'product_name_en', 'category', 'brand', 'origin_country', 'color']
+            const hasExisting = baseFields.some(k => {
+                const v = form[k]
+                return v !== '' && v !== null && v !== undefined
+            }) || Object.values(form.attributes || {}).some(v => v !== '' && v !== null && v !== undefined)
+
+            if (hasExisting) {
+                setSapPending(sapData)
+            } else {
+                applySapData(sapData, 'replace')
+            }
+        } catch (err: unknown) {
+            const e = err as { response?: { status?: number; data?: { error?: string } } }
+            if (e?.response?.status === 404) {
+                toast.error('الصنف غير موجود في SAP. تأكد من الرمز.')
+            } else {
+                toast.error(e?.response?.data?.error || 'فشل الاتصال بـ SAP. حاول مرة ثانية.')
+            }
+        } finally {
+            setSapFetching(false)
+        }
+    }
+
     const handleGenerateDescription = async () => {
         if (!isEdit) return toast.warning('احفظ المنتج أولاً ثم توليد الوصف')
         setGeneratingDesc(true)
@@ -218,9 +364,32 @@ export default function ProductFormPage() {
 
                         <div className="form-group">
                             <label className="form-label" htmlFor="sku">رقم SKU *</label>
-                            <input id="sku" className="form-input" style={{ fontFamily: 'var(--font-mono)' }}
-                                value={form.sku} onChange={e => set('sku', e.target.value)}
-                                placeholder="مثال: CER-60X60-WHT-001" disabled={isEdit} />
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <input id="sku" className="form-input" style={{ fontFamily: 'var(--font-mono)', flex: 1 }}
+                                    value={form.sku} onChange={e => set('sku', e.target.value)}
+                                    placeholder="مثال: CER-60X60-WHT-001" disabled={isEdit} />
+                                {canFetchSap && (form.sku || '').trim() && (
+                                    <button
+                                        type="button"
+                                        onClick={handleSapFetch}
+                                        disabled={sapFetching}
+                                        title="جلب بيانات الصنف من SAP"
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: 6,
+                                            padding: '0 14px', whiteSpace: 'nowrap',
+                                            background: 'var(--color-gold, #C8A84B)',
+                                            color: '#0e0e0e', border: 'none', borderRadius: 8,
+                                            fontSize: 12, fontWeight: 700, cursor: sapFetching ? 'wait' : 'pointer',
+                                            opacity: sapFetching ? 0.7 : 1, fontFamily: 'inherit',
+                                        }}
+                                    >
+                                        {sapFetching
+                                            ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
+                                            : <Download size={14} />}
+                                        {sapFetching ? 'جاري الجلب...' : 'جلب من SAP'}
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
                         <div className="form-group">
@@ -445,6 +614,72 @@ export default function ProductFormPage() {
                     <p style={{ fontSize: 13 }}>
                         احفظ المنتج أولاً ثم يمكنك رفع الصور وإدارتها
                     </p>
+                </div>
+            )}
+
+            {sapPending && (
+                <div
+                    onClick={() => setSapPending(null)}
+                    style={{
+                        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        zIndex: 2000,
+                    }}
+                >
+                    <div
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                            background: 'var(--color-surface, #1a1a1a)',
+                            color: 'var(--color-text-primary, #fff)',
+                            border: '1px solid var(--color-border-strong, #333)',
+                            borderRadius: 12, padding: 24, maxWidth: 480, width: '90%',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                        }}
+                    >
+                        <h3 style={{ marginTop: 0, marginBottom: 12, fontSize: 16 }}>
+                            تعبئة الحقول من SAP
+                        </h3>
+                        <p style={{ fontSize: 13, color: 'var(--color-text-secondary, #aaa)', marginBottom: 20 }}>
+                            الحقول فيها بيانات حالية. كيف تريد التعامل مع بيانات SAP؟
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <button
+                                type="button"
+                                onClick={() => { applySapData(sapPending, 'replace'); setSapPending(null) }}
+                                style={{
+                                    padding: '10px 14px', borderRadius: 8, border: 'none',
+                                    background: 'var(--color-gold, #C8A84B)', color: '#0e0e0e',
+                                    fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                                }}
+                            >
+                                استبدال الكل
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { applySapData(sapPending, 'fill_empty'); setSapPending(null) }}
+                                style={{
+                                    padding: '10px 14px', borderRadius: 8,
+                                    border: '1px solid var(--color-border-strong, #444)',
+                                    background: 'var(--color-surface-raised, #222)',
+                                    color: 'var(--color-text-primary, #fff)',
+                                    fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                                }}
+                            >
+                                تعبئة الفارغ فقط
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setSapPending(null)}
+                                style={{
+                                    padding: '8px 14px', borderRadius: 8, border: 'none',
+                                    background: 'transparent', color: 'var(--color-text-secondary, #aaa)',
+                                    fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                                }}
+                            >
+                                إلغاء
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
