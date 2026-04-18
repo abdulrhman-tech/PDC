@@ -27,6 +27,7 @@ export default function ProductDetailPage() {
     const isAr = i18n.language === 'ar'
     const [selectedImage, setSelectedImage] = useState(0)
     const [specsOpen, setSpecsOpen] = useState(false)
+    const [specsExpandAll, setSpecsExpandAll] = useState(false)
     const { data: product, isLoading } = useQuery<Product>({
         queryKey: ['product', id],
         queryFn: () => productsAPI.detail(Number(id)).then(r => r.data),
@@ -359,48 +360,97 @@ export default function ProductDetailPage() {
                             </button>
 
                             {/* محتوى الأكورديون */}
-                            {specsOpen && (
-                                <div style={{
-                                    background: 'var(--color-surface)',
-                                    border: '1px solid rgba(200,168,75,0.2)',
-                                    borderTop: 'none',
-                                    borderRadius: '0 0 10px 10px',
-                                    overflow: 'hidden',
-                                    animation: 'fadeIn .18s ease',
-                                }}>
-                                    {Object.entries(product.attributes).map(([key, value]) => {
-                                        const schemaItem = (product.attribute_schema || []).find(
-                                            s => s.key === key
-                                        )
-                                        const label = isAr
-                                            ? (schemaItem?.label_ar || key)
-                                            : (schemaItem?.label_en || schemaItem?.label_ar || key)
-                                        const unit = isAr
-                                            ? (schemaItem?.unit || '')
-                                            : (schemaItem?.unit_en || schemaItem?.unit || '')
-                                        // Translate select value to English when in EN mode
-                                        let displayValue = String(value)
-                                        if (!isAr && schemaItem?.options && schemaItem.options_en) {
-                                            const idx = schemaItem.options.indexOf(String(value))
-                                            if (idx >= 0 && schemaItem.options_en[idx]) {
-                                                displayValue = schemaItem.options_en[idx]
+                            {specsOpen && (() => {
+                                const PRIORITY_KEYS = [
+                                    'realsize', 'surfacenature', 'general_usage',
+                                    'tilethickness', 'designgroup', 'classifications',
+                                ]
+                                const allEntries = Object.entries(product.attributes)
+                                const priorityIdx = (k: string) => {
+                                    const i = PRIORITY_KEYS.indexOf(k.toLowerCase())
+                                    return i === -1 ? PRIORITY_KEYS.length : i
+                                }
+                                const sortedEntries = [...allEntries].sort(([a], [b]) => {
+                                    const ia = priorityIdx(a), ib = priorityIdx(b)
+                                    if (ia !== ib) return ia - ib
+                                    return 0
+                                })
+                                const PREVIEW_COUNT = 6
+                                const hasMore = sortedEntries.length > PREVIEW_COUNT
+                                const visibleEntries = (hasMore && !specsExpandAll)
+                                    ? sortedEntries.slice(0, PREVIEW_COUNT)
+                                    : sortedEntries
+                                return (
+                                    <div style={{
+                                        background: 'var(--color-surface)',
+                                        border: '1px solid rgba(200,168,75,0.2)',
+                                        borderTop: 'none',
+                                        borderRadius: '0 0 10px 10px',
+                                        overflow: 'hidden',
+                                        animation: 'fadeIn .18s ease',
+                                    }}>
+                                        {visibleEntries.map(([key, value]) => {
+                                            const schemaItem = (product.attribute_schema || []).find(
+                                                s => s.key === key
+                                            )
+                                            const label = isAr
+                                                ? (schemaItem?.label_ar || key)
+                                                : (schemaItem?.label_en || schemaItem?.label_ar || key)
+                                            const unit = isAr
+                                                ? (schemaItem?.unit || '')
+                                                : (schemaItem?.unit_en || schemaItem?.unit || '')
+                                            let displayValue = String(value)
+                                            if (!isAr && schemaItem?.options && schemaItem.options_en) {
+                                                const idx = schemaItem.options.indexOf(String(value))
+                                                if (idx >= 0 && schemaItem.options_en[idx]) {
+                                                    displayValue = schemaItem.options_en[idx]
+                                                }
                                             }
-                                        }
-                                        return (
-                                            <div key={key} style={{
-                                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                                padding: '10px 16px', borderBottom: '1px solid var(--color-border)',
-                                            }}>
-                                                <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
-                                                    {label}
-                                                    {unit && <span style={{ fontSize: 11, marginRight: 4, opacity: 0.6 }}>({unit})</span>}
-                                                </span>
-                                                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{displayValue}</span>
-                                            </div>
-                                        )
-                                    })}
-                                </div>
-                            )}
+                                            return (
+                                                <div key={key} style={{
+                                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                                    padding: '10px 16px', borderBottom: '1px solid var(--color-border)',
+                                                }}>
+                                                    <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
+                                                        {label}
+                                                        {unit && <span style={{ fontSize: 11, marginRight: 4, opacity: 0.6 }}>({unit})</span>}
+                                                    </span>
+                                                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{displayValue}</span>
+                                                </div>
+                                            )
+                                        })}
+                                        {hasMore && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setSpecsExpandAll(v => !v)}
+                                                style={{
+                                                    width: '100%', padding: '10px 16px',
+                                                    background: 'transparent', border: 'none',
+                                                    borderTop: '1px solid var(--color-border)',
+                                                    cursor: 'pointer', display: 'flex',
+                                                    alignItems: 'center', justifyContent: 'center', gap: 6,
+                                                    fontSize: 12, fontWeight: 600,
+                                                    color: 'var(--color-gold, #C8A84B)',
+                                                    fontFamily: 'inherit',
+                                                }}
+                                            >
+                                                {specsExpandAll
+                                                    ? (isAr ? 'عرض أقل' : 'Show less')
+                                                    : (isAr
+                                                        ? `عرض الكل (${sortedEntries.length} مواصفة)`
+                                                        : `Show all (${sortedEntries.length})`)}
+                                                <ChevronDown
+                                                    size={14}
+                                                    style={{
+                                                        transition: 'transform .25s',
+                                                        transform: specsExpandAll ? 'rotate(180deg)' : 'rotate(0deg)',
+                                                    }}
+                                                />
+                                            </button>
+                                        )}
+                                    </div>
+                                )
+                            })()}
                         </div>
                     )}
 
