@@ -9,8 +9,20 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .gemini_service import call_gemini
+from .openai_service import call_openai
 
 logger = logging.getLogger(__name__)
+
+
+def _openai_translate(text: str, src_name: str, dst_name: str) -> str:
+    system = (
+        "You are a professional translator for building materials product names. "
+        "Return ONLY the translated text — no quotes, no explanation, no prefix. "
+        "Keep brand names, model numbers, sizes, codes, and technical terms as-is."
+    )
+    prompt = f"Translate from {src_name} to {dst_name}:\n{text}"
+    out = call_openai(prompt, system=system, temperature=0.2, max_tokens=200)
+    return (out or '').strip().strip('"').strip("'").strip()
 
 
 _LANG_NAMES = {
@@ -45,22 +57,32 @@ def translate_text(request):
         f"Source text: {text}"
     )
 
+    gemini_error = None
     try:
         result = call_gemini(prompt, config_key='flash')
         translated = result if isinstance(result, str) else str(result)
         translated = translated.strip().strip('"').strip("'").strip()
-        if not translated:
-            return Response({'error': 'تعذّر استخراج الترجمة'},
-                            status=status.HTTP_502_BAD_GATEWAY)
-        return Response({'translated': translated})
+        if translated:
+            return Response({'translated': translated, 'provider': 'gemini'})
     except Exception as exc:
-        logger.exception('Translation failed')
-        msg = str(exc)
+        gemini_error = exc
+        logger.warning('Gemini translation failed, will try OpenAI: %s',
+                       str(exc)[:200])
+
+    try:
+        translated = _openai_translate(text, src_name, dst_name)
+        if translated:
+            return Response({'translated': translated, 'provider': 'openai'})
+        return Response({'error': 'تعذّر استخراج الترجمة'},
+                        status=status.HTTP_502_BAD_GATEWAY)
+    except Exception as exc:
+        logger.exception('OpenAI translation also failed')
+        msg = str(gemini_error or exc)
         low = msg.lower()
         if '429' in msg or 'quota' in low or 'rate' in low or 'exceeded' in low:
-            friendly = 'تجاوز الحد المسموح من Gemini حالياً. حاول بعد دقيقة أو ترجم يدوياً.'
+            friendly = 'تجاوز الحد المسموح من خدمتي الترجمة حالياً. حاول بعد دقيقة.'
         elif '401' in msg or '403' in msg or 'permission' in low or 'api key' in low:
-            friendly = 'مفتاح Gemini غير صالح أو منتهي الصلاحية.'
+            friendly = 'مفاتيح خدمات الترجمة غير صالحة.'
         elif 'timeout' in low or 'timed out' in low:
             friendly = 'انتهت مهلة الاتصال بخدمة الترجمة. حاول مرة ثانية.'
         else:
