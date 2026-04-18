@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Save, ArrowRight, Sparkles, Loader2, Download } from 'lucide-react'
+import { Save, ArrowRight, Sparkles, Loader2, Download, ChevronDown, Search as SearchIcon } from 'lucide-react'
 import { productsAPI, categoriesAPI, settingsAPI, brandsAPI, sapAPI } from '@/api/client'
 import { toast } from 'react-toastify'
 import type { AttributeSchemaItem } from '@/types'
@@ -25,6 +25,10 @@ export default function ProductFormPage() {
     const [sapFetching, setSapFetching] = useState(false)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [sapPending, setSapPending] = useState<any | null>(null)
+
+    const [attrsOpen, setAttrsOpen] = useState(false)
+    const [attrSearch, setAttrSearch] = useState('')
+    const [hideEmptyAttrs, setHideEmptyAttrs] = useState(false)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [form, setForm] = useState<Record<string, any>>({
@@ -245,6 +249,7 @@ export default function ProductFormPage() {
             return
         }
         setForm(f => ({ ...f, ...patch, sku: f.sku }))
+        if (patch.attributes) setAttrsOpen(true)
         toast.success(`تم جلب بيانات الصنف ${sapData.material_number || ''} من SAP`)
     }
 
@@ -542,65 +547,182 @@ export default function ProductFormPage() {
 
                 {/* RIGHT: Dynamic Attributes */}
                 <div className="card p-24">
-                    <div style={{ marginBottom: 20 }}>
-                        <h3>السمات الديناميكية</h3>
-                        <p style={{ fontSize: 12, color: 'var(--color-warm-gray)', marginTop: 4 }}>
-                            {form.category
-                                ? `حقول خاصة بتصنيف: ${categoriesFlat.find((c: { id: number }) => c.id === Number(form.category))?.name_ar ?? ''}`
-                                : 'اختر التصنيف أولاً لإظهار الحقول الخاصة بها'}
-                        </p>
-                    </div>
+                    {(() => {
+                        const isFilled = (s: AttributeSchemaItem) => {
+                            const v = form.attributes?.[s.field_key]
+                            return v !== '' && v !== null && v !== undefined
+                        }
+                        const sortedSchemas = [...attrSchema].sort((a, b) => {
+                            if (a.is_required && !b.is_required) return -1
+                            if (!a.is_required && b.is_required) return 1
+                            return a.order - b.order
+                        })
+                        const filledCount = sortedSchemas.filter(isFilled).length
+                        const totalCount = sortedSchemas.length
 
-                    {!form.category ? (
-                        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--color-warm-gray)' }}>
-                            <div style={{
-                                width: 48, height: 48, borderRadius: 12,
-                                background: 'var(--color-cream)', display: 'flex', alignItems: 'center',
-                                justifyContent: 'center', margin: '0 auto 12px',
-                            }}>
-                                <span style={{ fontSize: 24 }}>📋</span>
-                            </div>
-                            <p style={{ fontSize: 13 }}>اختر التصنيف من اليمين</p>
-                        </div>
-                    ) : attrSchema.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--color-warm-gray)', fontSize: 13 }}>
-                            لا توجد حقول ديناميكية لهذا التصنيف
-                        </div>
-                    ) : (
-                        <div>
-                            <div className="gold-line" style={{ marginBottom: 16 }} />
+                        const q = attrSearch.trim().toLowerCase()
+                        const matchSearch = (s: AttributeSchemaItem) => {
+                            if (!q) return true
+                            return (s.field_label_ar || '').toLowerCase().includes(q) ||
+                                (s.field_label_en || '').toLowerCase().includes(q) ||
+                                (s.field_key || '').toLowerCase().includes(q)
+                        }
+                        const visible = sortedSchemas.filter(matchSearch)
+                        const filledVisible = visible.filter(isFilled)
+                        const emptyVisible = hideEmptyAttrs ? [] : visible.filter(s => !isFilled(s))
 
-                            {/* Group required fields first */}
-                            {[...attrSchema].sort((a, b) => {
-                                if (a.is_required && !b.is_required) return -1
-                                if (!a.is_required && b.is_required) return 1
-                                return a.order - b.order
-                            }).map((schema) => (
-                                <div key={schema.field_key} className="form-group">
-                                    <label className="form-label" htmlFor={`attr-${schema.field_key}`}
-                                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <span>{schema.field_label_ar}</span>
-                                        {schema.is_required && (
-                                            <span style={{ color: '#e07070', fontSize: 13, lineHeight: 1 }}>*</span>
-                                        )}
-                                        {schema.unit && (
-                                            <span style={{
-                                                color: 'var(--color-warm-gray)', fontWeight: 400,
-                                                fontSize: 11, background: 'var(--color-cream)',
-                                                padding: '1px 6px', borderRadius: 4,
-                                            }}>
-                                                {schema.unit}
-                                            </span>
-                                        )}
-                                    </label>
-                                    {renderAttrField(schema)}
-                                    {schema.help_text_ar && (
-                                        <p className="form-help">{schema.help_text_ar}</p>
+                        const renderRow = (schema: AttributeSchemaItem, dim = false) => (
+                            <div key={schema.field_key} className="form-group" style={{ opacity: dim ? 0.78 : 1 }}>
+                                <label className="form-label" htmlFor={`attr-${schema.field_key}`}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span>{schema.field_label_ar}</span>
+                                    {schema.is_required && (
+                                        <span style={{ color: '#e07070', fontSize: 13, lineHeight: 1 }}>*</span>
                                     )}
-                                </div>
-                            ))}
-                        </div>
-                    )}
+                                    {schema.unit && (
+                                        <span style={{
+                                            color: 'var(--color-warm-gray)', fontWeight: 400,
+                                            fontSize: 11, background: 'var(--color-cream)',
+                                            padding: '1px 6px', borderRadius: 4,
+                                        }}>
+                                            {schema.unit}
+                                        </span>
+                                    )}
+                                </label>
+                                {renderAttrField(schema)}
+                                {schema.help_text_ar && (
+                                    <p className="form-help">{schema.help_text_ar}</p>
+                                )}
+                            </div>
+                        )
+
+                        return (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => attrSchema.length > 0 && setAttrsOpen(o => !o)}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                        width: '100%', padding: 0, background: 'none', border: 'none',
+                                        cursor: attrSchema.length > 0 ? 'pointer' : 'default',
+                                        textAlign: 'right', fontFamily: 'inherit', color: 'inherit',
+                                    }}
+                                >
+                                    <div>
+                                        <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <ChevronDown
+                                                size={16}
+                                                style={{
+                                                    transform: attrsOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
+                                                    transition: 'transform 0.18s ease',
+                                                    color: 'var(--color-gold, #C8A84B)',
+                                                }}
+                                            />
+                                            السمات الديناميكية
+                                            {form.category && totalCount > 0 && (
+                                                <span style={{ fontSize: 12, color: 'var(--color-warm-gray)', fontWeight: 500 }}>
+                                                    — {filledCount} معبأة من {totalCount}
+                                                </span>
+                                            )}
+                                        </h3>
+                                        <p style={{ fontSize: 12, color: 'var(--color-warm-gray)', marginTop: 4, marginBottom: 0 }}>
+                                            {form.category
+                                                ? `حقول خاصة بتصنيف: ${categoriesFlat.find((c: { id: number }) => c.id === Number(form.category))?.name_ar ?? ''}`
+                                                : 'اختر التصنيف أولاً لإظهار الحقول الخاصة بها'}
+                                        </p>
+                                    </div>
+                                </button>
+
+                                {!form.category ? (
+                                    <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--color-warm-gray)' }}>
+                                        <div style={{
+                                            width: 48, height: 48, borderRadius: 12,
+                                            background: 'var(--color-cream)', display: 'flex', alignItems: 'center',
+                                            justifyContent: 'center', margin: '20px auto 12px',
+                                        }}>
+                                            <span style={{ fontSize: 24 }}>📋</span>
+                                        </div>
+                                        <p style={{ fontSize: 13 }}>اختر التصنيف من اليمين</p>
+                                    </div>
+                                ) : totalCount === 0 ? (
+                                    <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--color-warm-gray)', fontSize: 13 }}>
+                                        لا توجد حقول ديناميكية لهذا التصنيف
+                                    </div>
+                                ) : attrsOpen && (
+                                    <div style={{ marginTop: 16 }}>
+                                        <div className="gold-line" style={{ marginBottom: 12 }} />
+
+                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+                                            <div style={{ position: 'relative', flex: 1, minWidth: 180 }}>
+                                                <SearchIcon size={13} style={{
+                                                    position: 'absolute', right: 9, top: '50%',
+                                                    transform: 'translateY(-50%)', color: 'var(--color-warm-gray)',
+                                                    pointerEvents: 'none',
+                                                }} />
+                                                <input
+                                                    type="text"
+                                                    value={attrSearch}
+                                                    onChange={e => setAttrSearch(e.target.value)}
+                                                    placeholder="بحث في السمات..."
+                                                    style={{
+                                                        width: '100%', padding: '7px 30px 7px 10px',
+                                                        border: '1px solid var(--color-border, #333)',
+                                                        borderRadius: 6,
+                                                        background: 'var(--color-surface-raised, #1a1a1a)',
+                                                        color: 'var(--color-text-primary, inherit)',
+                                                        fontSize: 12, fontFamily: 'inherit',
+                                                        boxSizing: 'border-box', outline: 'none',
+                                                    }}
+                                                />
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setHideEmptyAttrs(h => !h)}
+                                                style={{
+                                                    padding: '7px 12px', borderRadius: 6,
+                                                    border: '1px solid var(--color-border, #333)',
+                                                    background: hideEmptyAttrs ? 'var(--color-gold, #C8A84B)' : 'var(--color-surface-raised, #1a1a1a)',
+                                                    color: hideEmptyAttrs ? '#0e0e0e' : 'var(--color-text-primary, inherit)',
+                                                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                                    fontFamily: 'inherit', whiteSpace: 'nowrap',
+                                                }}
+                                            >
+                                                {hideEmptyAttrs ? 'إظهار الفارغة' : 'إخفاء الفارغة'}
+                                            </button>
+                                        </div>
+
+                                        <div className="attrs-scroll" style={{
+                                            maxHeight: 'min(400px, 50vh)',
+                                            overflowY: 'auto',
+                                            paddingLeft: 6,
+                                        }}>
+                                            {filledVisible.length === 0 && emptyVisible.length === 0 && (
+                                                <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--color-warm-gray)' }}>
+                                                    لا توجد نتائج
+                                                </div>
+                                            )}
+
+                                            {filledVisible.map(s => renderRow(s, false))}
+
+                                            {!hideEmptyAttrs && emptyVisible.length > 0 && (
+                                                <div style={{
+                                                    display: 'flex', alignItems: 'center', gap: 10,
+                                                    margin: '14px 0 10px', fontSize: 11,
+                                                    color: 'var(--color-warm-gray)',
+                                                }}>
+                                                    <span style={{ flex: 1, height: 1, background: 'var(--color-border, #333)' }} />
+                                                    <span>سمات فارغة ({emptyVisible.length})</span>
+                                                    <span style={{ flex: 1, height: 1, background: 'var(--color-border, #333)' }} />
+                                                </div>
+                                            )}
+
+                                            {emptyVisible.map(s => renderRow(s, true))}
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        )
+                    })()}
                 </div>
             </div>
 

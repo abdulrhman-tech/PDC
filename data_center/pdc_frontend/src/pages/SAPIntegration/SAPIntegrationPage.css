@@ -1225,3 +1225,21 @@
         grid-template-columns: 1fr;
     }
 }
+
+.attrs-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+.attrs-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+.attrs-scroll::-webkit-scrollbar-thumb {
+    background: rgba(200, 168, 75, 0.3);
+    border-radius: 3px;
+}
+.attrs-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(200, 168, 75, 0.5);
+}
+.attrs-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(200, 168, 75, 0.3) transparent;
+}
