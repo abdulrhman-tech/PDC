@@ -408,11 +408,11 @@ export default function ProductFormPage() {
                                 <button
                                     type="button"
                                     title="ترجمة من العربية"
-                                    disabled={!form.product_name_ar.trim() || translatingName}
+                                    disabled={!String(form.product_name_ar || '').trim() || translatingName}
                                     onClick={async () => {
-                                        const src = form.product_name_ar.trim()
+                                        const src = String(form.product_name_ar || '').trim()
                                         if (!src) return
-                                        if (form.product_name_en.trim()) {
+                                        if (String(form.product_name_en || '').trim()) {
                                             if (!window.confirm('الحقل فيه نص. استبدال؟')) return
                                         }
                                         try {
