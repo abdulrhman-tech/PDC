@@ -36,6 +36,28 @@ interface SelectedSyncResult {
 
 type LanguageFilter = 'all' | 'ar_only' | 'en_only' | 'missing_ar'
 
+const ARABIC_RE = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/
+const LATIN_RE = /[a-zA-Z]/
+
+function isArabicText(text: string | null | undefined): boolean {
+    if (!text) return false
+    return ARABIC_RE.test(text)
+}
+function isEnglishText(text: string | null | undefined): boolean {
+    if (!text) return false
+    return LATIN_RE.test(text)
+}
+function pickArabicName(item: SapItem): string {
+    if (isArabicText(item.name_ar)) return item.name_ar
+    if (isArabicText(item.name_en)) return item.name_en
+    return ''
+}
+function pickEnglishName(item: SapItem): string {
+    if (isEnglishText(item.name_en) && !isArabicText(item.name_en)) return item.name_en
+    if (isEnglishText(item.name_ar) && !isArabicText(item.name_ar)) return item.name_ar
+    return ''
+}
+
 interface Props {
     onSyncComplete?: () => void
 }
@@ -130,10 +152,14 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
 
     const matchesLang = useCallback((it: SapItem): boolean => {
         switch (langFilter) {
-            case 'ar_only': return !!(it.name_ar || '').trim()
-            case 'en_only': return !!(it.name_en || '').trim()
-            case 'missing_ar': return !(it.name_ar || '').trim()
-            default: return true
+            case 'ar_only':
+                return isArabicText(it.name_ar) || isArabicText(it.name_en)
+            case 'en_only':
+                return isEnglishText(it.name_ar) || isEnglishText(it.name_en)
+            case 'missing_ar':
+                return !isArabicText(it.name_ar) && !isArabicText(it.name_en)
+            default:
+                return true
         }
     }, [langFilter])
 
@@ -470,7 +496,7 @@ function TreeNode({ item, codeToChildren, expanded, toggleExpand, selectedCode, 
                 </span>
                 <span className="sap-tree-icon">{hasChildren ? <FolderTree size={16} /> : <FileText size={16} />}</span>
                 <span className="sap-tree-code">{item.code}</span>
-                <span className="sap-tree-name">{item.name_ar || item.name_en || '—'}</span>
+                <DisplayNames item={item} />
                 <span className={`sap-level-badge level-${item.level}`}>{item.level}</span>
                 {item.attributes.length > 0 && <span className="sap-attr-count">{item.attributes.length} سمة</span>}
             </div>
@@ -483,6 +509,20 @@ function TreeNode({ item, codeToChildren, expanded, toggleExpand, selectedCode, 
             )}
         </div>
     )
+}
+
+function DisplayNames({ item }: { item: SapItem }) {
+    const ar = pickArabicName(item)
+    const en = pickEnglishName(item)
+    if (ar && en) {
+        return (
+            <span className="sap-tree-name-wrap">
+                <span className="sap-tree-name">{ar}</span>
+                <span className="sap-tree-name-secondary">{en}</span>
+            </span>
+        )
+    }
+    return <span className="sap-tree-name">{ar || en || '—'}</span>
 }
 
 // keep RefreshCw import resolution stable

@@ -1188,3 +1188,27 @@
 .sap-sync-btn.selected-sync:hover:not(:disabled) {
     background: rgba(218, 165, 32, 0.22);
 }
+
+.sap-tree-name-wrap {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    flex: 1;
+}
+
+.sap-tree-name-wrap .sap-tree-name {
+    line-height: 1.2;
+}
+
+.sap-tree-name-secondary {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    opacity: 0.7;
+    line-height: 1.2;
+    direction: ltr;
+    text-align: start;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
