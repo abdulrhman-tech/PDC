@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react'
 import { sapAPI } from '@/api/client'
 import {
     RefreshCw, ChevronLeft, Download, Search,
-    X, Loader2, FolderTree, FileText, Database,
+    X, Loader2, FolderTree, FileText, Database, CheckSquare, Square,
 } from 'lucide-react'
 
 interface SapItem {
@@ -25,6 +25,17 @@ interface SyncSummary {
     updated?: number
 }
 
+interface SelectedSyncResult {
+    selected_count: number
+    total_synced: number
+    ancestors_added: number
+    created: number
+    updated: number
+    attributes_saved: number
+}
+
+type LanguageFilter = 'all' | 'ar_only' | 'en_only' | 'missing_ar'
+
 interface Props {
     onSyncComplete?: () => void
 }
@@ -39,14 +50,19 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
 
     const [search, setSearch] = useState('')
     const [levelFilter, setLevelFilter] = useState<number | null>(null)
+    const [langFilter, setLangFilter] = useState<LanguageFilter>('all')
     const [expanded, setExpanded] = useState<Set<string>>(new Set())
     const [selectedCode, setSelectedCode] = useState<string | null>(null)
+    const [selectedForSync, setSelectedForSync] = useState<Set<string>>(new Set())
 
     const [syncModal, setSyncModal] = useState(false)
     const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null)
     const [syncing, setSyncing] = useState(false)
     const [syncResult, setSyncResult] = useState<SyncSummary | null>(null)
     const [syncError, setSyncError] = useState('')
+
+    const [selectedSyncModal, setSelectedSyncModal] = useState(false)
+    const [selectedSyncResult, setSelectedSyncResult] = useState<SelectedSyncResult | null>(null)
 
     const handleFetch = useCallback(async () => {
         setFetching(true)
@@ -86,6 +102,17 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
         } finally { setSyncing(false) }
     }, [onSyncComplete])
 
+    const handleSyncSelected = useCallback(async () => {
+        setSyncing(true); setSyncError(''); setSelectedSyncResult(null)
+        try {
+            const { data } = await sapAPI.syncHierarchySelected(Array.from(selectedForSync))
+            setSelectedSyncResult(data.summary)
+            onSyncComplete?.()
+        } catch (e: any) {
+            setSyncError(e?.response?.data?.error || 'فشلت المزامنة')
+        } finally { setSyncing(false) }
+    }, [selectedForSync, onSyncComplete])
+
     const tree = useMemo(() => {
         const codeToChildren: Record<string, SapItem[]> = {}
         const codeToItem: Record<string, SapItem> = {}
@@ -101,9 +128,19 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
         return { roots, codeToChildren, codeToItem }
     }, [items])
 
+    const matchesLang = useCallback((it: SapItem): boolean => {
+        switch (langFilter) {
+            case 'ar_only': return !!(it.name_ar || '').trim()
+            case 'en_only': return !!(it.name_en || '').trim()
+            case 'missing_ar': return !(it.name_ar || '').trim()
+            default: return true
+        }
+    }, [langFilter])
+
     const subtreeMatchCache = useMemo(() => {
         const cache: Record<string, boolean> = {}
         const itemMatchesSearch = (item: SapItem): boolean => {
+            if (!matchesLang(item)) return false
             if (!search && levelFilter === null) return true
             if (levelFilter !== null && item.level !== levelFilter) return false
             if (!search) return true
@@ -124,9 +161,10 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
         }
         for (const code of Object.keys(tree.codeToItem)) check(code)
         return cache
-    }, [tree, search, levelFilter])
+    }, [tree, search, levelFilter, matchesLang])
 
     const matchesSearch = useCallback((item: SapItem): boolean => {
+        if (!matchesLang(item)) return false
         if (!search && levelFilter === null) return true
         if (levelFilter !== null && item.level !== levelFilter) return false
         if (!search) return true
@@ -134,17 +172,70 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
         return item.code.toLowerCase().includes(q) ||
             (item.name_ar || '').toLowerCase().includes(q) ||
             (item.name_en || '').toLowerCase().includes(q)
-    }, [search, levelFilter])
+    }, [search, levelFilter, matchesLang])
 
     const hasMatchInSubtree = useCallback((code: string) => subtreeMatchCache[code] ?? false, [subtreeMatchCache])
 
-    const toggleExpand = (code: string) => {
+    const toggleExpand = useCallback((code: string) => {
         setExpanded(prev => {
             const next = new Set(prev)
             if (next.has(code)) next.delete(code); else next.add(code)
             return next
         })
-    }
+    }, [])
+
+    const collectDescendants = useCallback((code: string): string[] => {
+        const result: string[] = []
+        const visited = new Set<string>()
+        const stack = [code]
+        while (stack.length) {
+            const c = stack.pop()!
+            if (visited.has(c)) continue
+            visited.add(c)
+            result.push(c)
+            const children = tree.codeToChildren[c] || []
+            for (const ch of children) if (!visited.has(ch.code)) stack.push(ch.code)
+        }
+        return result
+    }, [tree])
+
+    const toggleSelect = useCallback((code: string) => {
+        setSelectedForSync(prev => {
+            const next = new Set(prev)
+            const descendants = collectDescendants(code)
+            if (next.has(code)) {
+                for (const d of descendants) next.delete(d)
+            } else {
+                for (const d of descendants) next.add(d)
+            }
+            return next
+        })
+    }, [collectDescendants])
+
+    const visibleCodes = useMemo(() => {
+        const result: string[] = []
+        for (const code of Object.keys(tree.codeToItem)) {
+            if (subtreeMatchCache[code] || matchesSearch(tree.codeToItem[code])) result.push(code)
+        }
+        return result
+    }, [tree, subtreeMatchCache, matchesSearch])
+
+    const allVisibleSelected = visibleCodes.length > 0 && visibleCodes.every(c => selectedForSync.has(c))
+
+    const toggleSelectAll = useCallback(() => {
+        setSelectedForSync(prev => {
+            if (allVisibleSelected) {
+                const next = new Set(prev)
+                for (const c of visibleCodes) next.delete(c)
+                return next
+            }
+            const next = new Set(prev)
+            for (const c of visibleCodes) next.add(c)
+            return next
+        })
+    }, [allVisibleSelected, visibleCodes])
+
+    const clearSelection = useCallback(() => setSelectedForSync(new Set()), [])
 
     const selectedItem = selectedCode ? items.find(i => i.code === selectedCode) : null
 
@@ -159,15 +250,29 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
                     <option value="">كل المستويات</option>
                     {[1, 2, 3, 4, 5].map(l => <option key={l} value={l}>المستوى {l}</option>)}
                 </select>
+                <select className="sap-level-filter" value={langFilter} onChange={e => setLangFilter(e.target.value as LanguageFilter)}>
+                    <option value="all">كل اللغات</option>
+                    <option value="ar_only">عربي فقط</option>
+                    <option value="en_only">إنجليزي فقط</option>
+                    <option value="missing_ar">بدون اسم عربي</option>
+                </select>
                 <button className="sap-fetch-btn" onClick={handleFetch} disabled={fetching}>
                     {fetching ? <Loader2 size={14} className="spin-icon" style={{ animation: 'sapSpin 1s linear infinite' }} /> : <Download size={14} />}
                     جلب من SAP
                 </button>
                 {hasFetched && items.length > 0 && (
-                    <button className="sap-sync-btn" onClick={handleSyncPreview} disabled={syncing}>
-                        {syncing ? <Loader2 size={14} className="spin-icon" style={{ animation: 'sapSpin 1s linear infinite' }} /> : <Database size={14} />}
-                        مزامنة مع النظام
-                    </button>
+                    <>
+                        {selectedForSync.size > 0 && (
+                            <button className="sap-sync-btn selected-sync" onClick={() => { setSelectedSyncResult(null); setSelectedSyncModal(true) }} disabled={syncing}>
+                                <CheckSquare size={14} />
+                                مزامنة المحدد ({selectedForSync.size})
+                            </button>
+                        )}
+                        <button className="sap-sync-btn" onClick={handleSyncPreview} disabled={syncing}>
+                            {syncing ? <Loader2 size={14} className="spin-icon" style={{ animation: 'sapSpin 1s linear infinite' }} /> : <Database size={14} />}
+                            مزامنة الكل
+                        </button>
+                    </>
                 )}
             </div>
 
@@ -179,6 +284,16 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
                     {Object.entries(levelCounts).sort(([a], [b]) => Number(a) - Number(b)).map(([lvl, cnt]) => (
                         <span key={lvl} className="sap-stat-chip">المستوى {lvl}: <span className="stat-value">{cnt}</span></span>
                     ))}
+                    {selectedForSync.size > 0 && (
+                        <>
+                            <span className="sap-stat-chip" style={{ background: 'rgba(218, 165, 32, 0.15)', borderColor: 'rgba(218, 165, 32, 0.4)' }}>
+                                محدد: <span className="stat-value" style={{ color: 'var(--color-gold)' }}>{selectedForSync.size}</span>
+                            </span>
+                            <button className="sap-stat-chip" onClick={clearSelection} style={{ cursor: 'pointer', border: 'none' }}>
+                                <X size={12} style={{ verticalAlign: 'middle' }} /> إلغاء التحديد
+                            </button>
+                        </>
+                    )}
                 </div>
             )}
 
@@ -189,11 +304,31 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
             ) : items.length === 0 ? (
                 <div className="sap-empty-state"><div className="empty-icon">📭</div><h3>لا توجد تصنيفات</h3><p>لم يتم العثور على بيانات من SAP</p></div>
             ) : (
-                <div className="sap-tree-container">
-                    {tree.roots.filter(r => hasMatchInSubtree(r.code)).map(root => (
-                        <TreeNode key={root.code} item={root} codeToChildren={tree.codeToChildren} expanded={expanded} toggleExpand={toggleExpand} selectedCode={selectedCode} setSelectedCode={setSelectedCode} matchesSearch={matchesSearch} hasMatchInSubtree={hasMatchInSubtree} />
-                    ))}
-                </div>
+                <>
+                    <div className="sap-tree-select-all" onClick={toggleSelectAll}>
+                        <span className={`sap-checkbox ${allVisibleSelected ? 'checked' : ''}`}>
+                            {allVisibleSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+                        </span>
+                        <span>{allVisibleSelected ? 'إلغاء تحديد الكل' : 'تحديد الكل'} ({visibleCodes.length} ظاهر)</span>
+                    </div>
+                    <div className="sap-tree-container">
+                        {tree.roots.filter(r => hasMatchInSubtree(r.code)).map(root => (
+                            <TreeNode
+                                key={root.code}
+                                item={root}
+                                codeToChildren={tree.codeToChildren}
+                                expanded={expanded}
+                                toggleExpand={toggleExpand}
+                                selectedCode={selectedCode}
+                                setSelectedCode={setSelectedCode}
+                                matchesSearch={matchesSearch}
+                                hasMatchInSubtree={hasMatchInSubtree}
+                                selectedForSync={selectedForSync}
+                                toggleSelect={toggleSelect}
+                            />
+                        ))}
+                    </div>
+                </>
             )}
 
             {selectedItem && (
@@ -228,7 +363,7 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
             {syncModal && (
                 <div className="sap-sync-modal-overlay" onClick={() => { if (!syncing) setSyncModal(false) }}>
                     <div className="sap-sync-modal" onClick={e => e.stopPropagation()}>
-                        <h3>مزامنة التصنيفات مع النظام</h3>
+                        <h3>مزامنة كل التصنيفات مع النظام</h3>
                         {syncSummary && !syncResult && (
                             <>
                                 <div className="sap-sync-summary">
@@ -257,11 +392,50 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
                     </div>
                 </div>
             )}
+
+            {selectedSyncModal && (
+                <div className="sap-sync-modal-overlay" onClick={() => { if (!syncing) setSelectedSyncModal(false) }}>
+                    <div className="sap-sync-modal" onClick={e => e.stopPropagation()}>
+                        <h3>مزامنة التصنيفات المحددة</h3>
+                        {!selectedSyncResult && (
+                            <>
+                                <div className="sap-sync-summary">
+                                    <div className="sap-sync-summary-item create"><div className="sync-label">المحدد</div><div className="sync-value">{selectedForSync.size}</div></div>
+                                </div>
+                                <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 16 }}>
+                                    سيتم حفظ التصنيفات المحددة + كل أجدادها (المسار الهرمي الكامل) + سماتها في النظام.
+                                </div>
+                            </>
+                        )}
+                        {syncError && <div className="sap-error-box">{syncError}</div>}
+                        {selectedSyncResult && (
+                            <div className="sap-sync-result">
+                                تم مزامنة {selectedSyncResult.total_synced} تصنيف
+                                {selectedSyncResult.ancestors_added > 0 && ` (شامل ${selectedSyncResult.ancestors_added} من الأجداد)`}
+                                مع {selectedSyncResult.attributes_saved} سمة جديدة.
+                                <div style={{ marginTop: 6, fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                                    إضافة: {selectedSyncResult.created} • تحديث: {selectedSyncResult.updated}
+                                </div>
+                            </div>
+                        )}
+                        <div className="sap-sync-actions">
+                            {!selectedSyncResult ? (
+                                <>
+                                    <button className="sap-sync-confirm-btn" onClick={handleSyncSelected} disabled={syncing}>{syncing ? 'جاري المزامنة...' : 'تأكيد المزامنة'}</button>
+                                    <button className="sap-sync-cancel-btn" onClick={() => setSelectedSyncModal(false)} disabled={syncing}>إلغاء</button>
+                                </>
+                            ) : (
+                                <button className="sap-sync-cancel-btn" onClick={() => { setSelectedSyncModal(false); setSelectedSyncResult(null) }}>إغلاق</button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     )
 }
 
-function TreeNode({ item, codeToChildren, expanded, toggleExpand, selectedCode, setSelectedCode, matchesSearch, hasMatchInSubtree }: {
+function TreeNode({ item, codeToChildren, expanded, toggleExpand, selectedCode, setSelectedCode, matchesSearch, hasMatchInSubtree, selectedForSync, toggleSelect }: {
     item: SapItem
     codeToChildren: Record<string, SapItem[]>
     expanded: Set<string>
@@ -270,12 +444,15 @@ function TreeNode({ item, codeToChildren, expanded, toggleExpand, selectedCode, 
     setSelectedCode: (code: string | null) => void
     matchesSearch: (item: SapItem) => boolean
     hasMatchInSubtree: (code: string) => boolean
+    selectedForSync: Set<string>
+    toggleSelect: (code: string) => void
 }) {
     const children = codeToChildren[item.code] || []
     const hasChildren = children.length > 0
     const isExpanded = expanded.has(item.code)
     const isSelected = selectedCode === item.code
     const selfMatches = matchesSearch(item)
+    const isChecked = selectedForSync.has(item.code)
     if (!selfMatches && !hasMatchInSubtree(item.code)) return null
     return (
         <div>
@@ -283,6 +460,14 @@ function TreeNode({ item, codeToChildren, expanded, toggleExpand, selectedCode, 
                 <button className={`sap-tree-toggle${isExpanded ? ' expanded' : ''}${!hasChildren ? ' leaf' : ''}`} onClick={e => { e.stopPropagation(); if (hasChildren) toggleExpand(item.code) }}>
                     <ChevronLeft size={14} />
                 </button>
+                <span
+                    className={`sap-checkbox ${isChecked ? 'checked' : ''}`}
+                    onClick={e => { e.stopPropagation(); toggleSelect(item.code) }}
+                    role="checkbox"
+                    aria-checked={isChecked}
+                >
+                    {isChecked ? <CheckSquare size={16} /> : <Square size={16} />}
+                </span>
                 <span className="sap-tree-icon">{hasChildren ? <FolderTree size={16} /> : <FileText size={16} />}</span>
                 <span className="sap-tree-code">{item.code}</span>
                 <span className="sap-tree-name">{item.name_ar || item.name_en || '—'}</span>
@@ -292,10 +477,13 @@ function TreeNode({ item, codeToChildren, expanded, toggleExpand, selectedCode, 
             {hasChildren && isExpanded && (
                 <div className="sap-tree-children">
                     {children.filter(c => hasMatchInSubtree(c.code)).map(child => (
-                        <TreeNode key={child.code} item={child} codeToChildren={codeToChildren} expanded={expanded} toggleExpand={toggleExpand} selectedCode={selectedCode} setSelectedCode={setSelectedCode} matchesSearch={matchesSearch} hasMatchInSubtree={hasMatchInSubtree} />
+                        <TreeNode key={child.code} item={child} codeToChildren={codeToChildren} expanded={expanded} toggleExpand={toggleExpand} selectedCode={selectedCode} setSelectedCode={setSelectedCode} matchesSearch={matchesSearch} hasMatchInSubtree={hasMatchInSubtree} selectedForSync={selectedForSync} toggleSelect={toggleSelect} />
                     ))}
                 </div>
             )}
         </div>
     )
 }
+
+// keep RefreshCw import resolution stable
+void RefreshCw

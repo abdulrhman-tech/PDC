@@ -1133,3 +1133,58 @@
 .sap-products-table tbody tr:last-child td {
     border-bottom: none;
 }
+
+/* ──────── Phase 3: Checkboxes + Selective Sync ──────── */
+
+.sap-checkbox {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.15s ease, color 0.15s ease;
+    flex-shrink: 0;
+}
+
+.sap-checkbox:hover {
+    background: var(--color-surface-raised);
+    color: var(--color-text-primary);
+}
+
+.sap-checkbox.checked {
+    color: var(--color-gold);
+}
+
+.sap-tree-select-all {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    user-select: none;
+    transition: border-color 0.15s ease;
+}
+
+.sap-tree-select-all:hover {
+    border-color: var(--color-gold);
+    color: var(--color-text-primary);
+}
+
+.sap-sync-btn.selected-sync {
+    background: rgba(218, 165, 32, 0.15);
+    color: var(--color-gold);
+    border-color: rgba(218, 165, 32, 0.4);
+}
+
+.sap-sync-btn.selected-sync:hover:not(:disabled) {
+    background: rgba(218, 165, 32, 0.22);
+}

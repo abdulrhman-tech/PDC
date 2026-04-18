@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.users.views import IsSuperAdmin
-from apps.categories.models import Category
+from apps.categories.models import Category, CategoryAttributeSchema
 from apps.products.models import Product, ProductStatus
 
 logger = logging.getLogger(__name__)
@@ -194,6 +194,119 @@ def sync_hierarchy(request):
             'created': created_count,
             'updated': updated_count,
         },
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsSuperAdmin])
+def sync_hierarchy_selected(request):
+    selected_codes = request.data.get('codes', [])
+    if not isinstance(selected_codes, list) or not selected_codes:
+        return Response({'error': 'يجب تحديد التصنيفات (codes)'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        svc = _get_sap_service()
+        items = svc.get_hierarchy()
+    except Exception as e:
+        logger.exception("SAP fetch for selective sync failed")
+        return Response({'error': 'فشل جلب البيانات من SAP', 'detail': str(e)[:300]},
+                        status=status.HTTP_502_BAD_GATEWAY)
+
+    code_to_item = {it['code']: it for it in items}
+    selected_set = set(selected_codes)
+
+    full_set = set()
+    for code in selected_codes:
+        node = code_to_item.get(code)
+        while node and node['code'] not in full_set:
+            full_set.add(node['code'])
+            parent_code = node.get('parent_code')
+            if not parent_code or parent_code == node['code']:
+                break
+            node = code_to_item.get(parent_code)
+
+    items_to_save = sorted(
+        (code_to_item[c] for c in full_set if c in code_to_item),
+        key=lambda x: x.get('level', 0),
+    )
+
+    created = 0
+    updated = 0
+    attrs_saved = 0
+
+    try:
+        with transaction.atomic():
+            existing_map = {
+                cat.code: cat
+                for cat in Category.objects.filter(code__in=full_set)
+            }
+            code_to_cat = dict(existing_map)
+
+            for it in items_to_save:
+                code = it['code']
+                parent_code = it.get('parent_code', '')
+                parent_obj = code_to_cat.get(parent_code) if parent_code and parent_code != code else None
+
+                if code in existing_map:
+                    cat = existing_map[code]
+                    needs_save = False
+                    if it.get('name_ar') and cat.name_ar != it['name_ar']:
+                        cat.name_ar = it['name_ar']; needs_save = True
+                    if it.get('name_en') and cat.name_en != it['name_en']:
+                        cat.name_en = it['name_en']; needs_save = True
+                    new_parent_id = getattr(parent_obj, 'id', None)
+                    if cat.parent_id != new_parent_id:
+                        cat.parent = parent_obj; needs_save = True
+                    if needs_save:
+                        cat.save()
+                        updated += 1
+                    code_to_cat[code] = cat
+                else:
+                    cat = Category(
+                        code=code,
+                        name_ar=it.get('name_ar') or code,
+                        name_en=it.get('name_en') or '',
+                        level=it.get('level', 1),
+                        parent=parent_obj,
+                    )
+                    cat.save()
+                    code_to_cat[code] = cat
+                    created += 1
+
+                if code in selected_set:
+                    for attr in it.get('attributes', []):
+                        char_name = (attr.get('name') or '').strip()
+                        if not char_name:
+                            continue
+                        field_key = char_name.lower().replace(' ', '_')[:50]
+                        char_value = attr.get('value') or ''
+                        schema, was_created = CategoryAttributeSchema.objects.update_or_create(
+                            category=cat,
+                            field_key=field_key,
+                            defaults={
+                                'field_label_ar': char_name,
+                                'field_label_en': char_name,
+                                'field_type': 'text',
+                                'help_text_ar': char_value[:200] if char_value else '',
+                            },
+                        )
+                        if was_created:
+                            attrs_saved += 1
+    except Exception as e:
+        logger.exception("Selective sync transaction failed")
+        return Response({'error': 'فشلت المزامنة', 'detail': str(e)[:300]},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return Response({
+        'summary': {
+            'selected_count': len(selected_codes),
+            'total_synced': len(items_to_save),
+            'ancestors_added': len(items_to_save) - len(selected_codes),
+            'created': created,
+            'updated': updated,
+            'attributes_saved': attrs_saved,
+        }
     })
 
 
