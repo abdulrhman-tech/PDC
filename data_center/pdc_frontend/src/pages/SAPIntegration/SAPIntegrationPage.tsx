@@ -1,9 +1,10 @@
 import { useState, useCallback, useEffect } from 'react'
 import { sapAPI } from '@/api/client'
-import { Link2, RefreshCw, X, Loader2, Stethoscope, FolderTree, Search, Calendar } from 'lucide-react'
+import { Link2, RefreshCw, X, Loader2, Stethoscope, FolderTree, Search, Calendar, Clock } from 'lucide-react'
 import HierarchyTab from './HierarchyTab'
 import ProductLookupTab from './ProductLookupTab'
 import ProductsByDateTab from './ProductsByDateTab'
+import ScheduledTasksTab from './ScheduledTasksTab'
 import './SAPIntegrationPage.css'
 
 interface ConnectionResult {
@@ -17,7 +18,7 @@ interface ConnectionResult {
     detail?: string
 }
 
-type TabId = 'hierarchy' | 'product' | 'date'
+type TabId = 'hierarchy' | 'product' | 'date' | 'schedule'
 
 const LAST_SYNC_KEY = 'sap_last_sync_at'
 
@@ -75,6 +76,7 @@ export default function SAPIntegrationPage() {
         { id: 'hierarchy', label: 'شجرة التصنيفات', icon: FolderTree },
         { id: 'product', label: 'بحث صنف', icon: Search },
         { id: 'date', label: 'أصناف حسب الفترة', icon: Calendar },
+        { id: 'schedule', label: 'المهام المجدولة', icon: Clock },
     ]
 
     return (
@@ -205,6 +207,9 @@ export default function SAPIntegrationPage() {
                 </div>
                 <div style={{ display: activeTab === 'date' ? 'block' : 'none' }}>
                     <ProductsByDateTab onSyncComplete={markSynced} />
+                </div>
+                <div style={{ display: activeTab === 'schedule' ? 'block' : 'none' }}>
+                    <ScheduledTasksTab />
                 </div>
             </div>
         </div>

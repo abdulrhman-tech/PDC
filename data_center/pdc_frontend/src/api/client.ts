@@ -220,6 +220,15 @@ export const sapAPI = {
         api.get(`/sap/products/?date_from=${dateFrom}&date_to=${dateTo}`),
     syncProducts: (products: any[]) =>
         api.post('/sap/products/sync/', { products }),
+
+    // Scheduled tasks
+    listScheduledTasks: () => api.get('/sap/scheduled-tasks/'),
+    updateScheduledTask: (id: number, payload: any) =>
+        api.patch(`/sap/scheduled-tasks/${id}/`, payload),
+    runScheduledTaskNow: (id: number, background = true) =>
+        api.post(`/sap/scheduled-tasks/${id}/run-now/?background=${background ? 'true' : 'false'}`),
+    getTaskLogs: (id: number, limit = 20) =>
+        api.get(`/sap/scheduled-tasks/${id}/logs/?limit=${limit}`),
 }
 
 export const translateAPI = {
