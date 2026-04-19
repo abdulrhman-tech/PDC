@@ -6,7 +6,7 @@ import {
     Image as ImageIcon, Sparkles, Eye, Settings2, Loader2,
     CheckCircle2, XCircle, ArrowRight, ArrowLeft, Download,
     Clock, RefreshCw, Wand2, Upload, Layers, Package, Camera,
-    LayoutGrid,
+    LayoutGrid, Box, Grid3x3,
 } from 'lucide-react'
 import { getTemplatesForMode, type RoomTemplate } from './roomTemplates'
 import MultiProductGenerator from './MultiProductGenerator'
@@ -172,17 +172,59 @@ const MODE_INFO: Record<GenerationMode, { icon: typeof Layers; label: string; de
 
 type WizardStep = 'type_select' | 'source' | 'analysis' | 'settings' | 'confirm' | 'generating' | 'result'
 
-export default function DecorativeGeneratorPage() {
-    const [multiMode, setMultiMode] = useState(false)
+type TopMode = 'choose' | 'single' | 'multi'
 
-    if (multiMode) {
-        return <MultiProductGenerator onBack={() => setMultiMode(false)} />
+export default function DecorativeGeneratorPage() {
+    const [topMode, setTopMode] = useState<TopMode>('choose')
+
+    if (topMode === 'multi') {
+        return <MultiProductGenerator onBack={() => setTopMode('choose')} />
     }
 
-    return <SingleProductGenerator onMulti={() => setMultiMode(true)} />
+    if (topMode === 'single') {
+        return <SingleProductGenerator onBackToChoose={() => setTopMode('choose')} />
+    }
+
+    return (
+        <div className="decorative-page">
+            <div className="decorative-header">
+                <div className="decorative-title">
+                    <Wand2 size={28} />
+                    <h1>توليد صور ديكورية</h1>
+                </div>
+                <p className="decorative-subtitle">
+                    اختر نوع المشهد الذي تريد إنشاءه
+                </p>
+            </div>
+
+            <div className="decorative-content">
+                <div className="mode-chooser">
+                    <button className="mode-chooser-card" onClick={() => setTopMode('single')}>
+                        <div className="mode-chooser-icon mode-chooser-icon--single">
+                            <Box size={48} />
+                        </div>
+                        <div className="mode-chooser-title">مشهد منتج واحد</div>
+                        <div className="mode-chooser-desc">
+                            ضع منتجاً واحداً في مشهد ديكوري احترافي — مناسب للأرضيات والجدران والأثاث وغيرها
+                        </div>
+                    </button>
+
+                    <button className="mode-chooser-card" onClick={() => setTopMode('multi')}>
+                        <div className="mode-chooser-icon mode-chooser-icon--multi">
+                            <Grid3x3 size={48} />
+                        </div>
+                        <div className="mode-chooser-title">مشهد متعدد المنتجات</div>
+                        <div className="mode-chooser-desc">
+                            ادمج عدة منتجات في مشهد واحد متكامل — أرضية مع جدار مع أثاث في غرفة واحدة
+                        </div>
+                    </button>
+                </div>
+            </div>
+        </div>
+    )
 }
 
-function SingleProductGenerator({ onMulti }: { onMulti: () => void }) {
+function SingleProductGenerator({ onBackToChoose }: { onBackToChoose: () => void }) {
     const [step, setStep] = useState<WizardStep>('type_select')
     const [imageUrl, setImageUrl] = useState('')
     const [imagePreview, setImagePreview] = useState('')
@@ -508,8 +550,11 @@ function SingleProductGenerator({ onMulti }: { onMulti: () => void }) {
                 <div className="decorative-title">
                     <Wand2 size={28} />
                     <h1>توليد صور ديكورية</h1>
-                    <button className="btn-multi-product" onClick={onMulti}>
-                        <Layers size={16} /> مشهد متعدد المنتجات
+                    <span className="mode-pill mode-pill--single">
+                        <Box size={14} /> مشهد منتج واحد
+                    </span>
+                    <button className="btn-multi-product" onClick={onBackToChoose}>
+                        <ArrowRight size={14} /> تغيير نوع المشهد
                     </button>
                 </div>
                 <p className="decorative-subtitle">

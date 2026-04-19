@@ -522,7 +522,7 @@ export default function MultiProductGenerator({ onBack }: Props) {
 
                         <div className="step-actions">
                             <button className="btn-secondary" onClick={onBack}>
-                                <ArrowRight size={18} /> رجوع
+                                <ArrowRight size={18} /> تغيير نوع المشهد
                             </button>
                             <button
                                 className="btn-primary"
@@ -1029,7 +1029,7 @@ export default function MultiProductGenerator({ onBack }: Props) {
                                         <RefreshCw size={18} /> مشهد جديد
                                     </button>
                                     <button className="btn-secondary" onClick={onBack}>
-                                        <ArrowRight size={18} /> رجوع للتوليد الفردي
+                                        <ArrowRight size={18} /> تغيير نوع المشهد
                                     </button>
                                 </div>
 
