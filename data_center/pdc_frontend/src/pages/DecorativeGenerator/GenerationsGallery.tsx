@@ -1,11 +1,11 @@
-import { useState, useMemo, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { decorativeAPI } from '@/api/client'
 import type { DecorativeGeneration } from '@/types'
 import {
     FolderOpen, ArrowRight, ArrowLeft, Loader2, RefreshCw,
     XCircle, CheckCircle2, Clock, Download, Image as ImageIcon,
-    Box, Grid3x3, ImagePlus, Sparkles,
+    Box, Grid3x3, ImagePlus, Sparkles, Trash2, AlertTriangle,
 } from 'lucide-react'
 
 type GalleryFilter = 'all' | 'completed' | 'enhance' | 'single' | 'multi'
@@ -53,12 +53,46 @@ function fmtDate(s: string): string {
 export default function GenerationsGallery({ onBackToChoose }: Props) {
     const [filter, setFilter] = useState<GalleryFilter>('all')
     const [lightboxItem, setLightboxItem] = useState<DecorativeGeneration | null>(null)
+    const [brokenIds, setBrokenIds] = useState<Set<number>>(new Set())
+    const [deleteCandidate, setDeleteCandidate] = useState<DecorativeGeneration | null>(null)
+    const queryClient = useQueryClient()
 
     const { data, isLoading, isError, refetch, isFetching } = useQuery({
         queryKey: ['decorative-history', 'gallery'],
         queryFn: () => decorativeAPI.history({ page_size: 100 }),
         staleTime: 30_000,
     })
+
+    const deleteMutation = useMutation({
+        mutationFn: (id: number) => decorativeAPI.delete(id),
+        onSuccess: (_res, id) => {
+            queryClient.setQueryData(
+                ['decorative-history', 'gallery'],
+                (old: { data?: DecorativeGeneration[] | { results: DecorativeGeneration[] } } | undefined) => {
+                    if (!old?.data) return old
+                    if (Array.isArray(old.data)) {
+                        return { ...old, data: old.data.filter(g => g.id !== id) }
+                    }
+                    if (Array.isArray((old.data as { results?: DecorativeGeneration[] }).results)) {
+                        const r = old.data as { results: DecorativeGeneration[] }
+                        return { ...old, data: { ...r, results: r.results.filter(g => g.id !== id) } }
+                    }
+                    return old
+                },
+            )
+            setDeleteCandidate(null)
+            if (lightboxItem?.id === id) setLightboxItem(null)
+        },
+    })
+
+    const markBroken = (id: number) => {
+        setBrokenIds(prev => {
+            if (prev.has(id)) return prev
+            const next = new Set(prev)
+            next.add(id)
+            return next
+        })
+    }
 
     const items: DecorativeGeneration[] = data?.data?.results || data?.data || []
 
@@ -158,37 +192,69 @@ export default function GenerationsGallery({ onBackToChoose }: Props) {
                             const mb = modeBadge(mode)
                             const sb = statusBadge(item.status)
                             const thumb = item.result_image_url || item.source_image_url
+                            const isBroken = brokenIds.has(item.id)
                             const ModeIcon = mb.icon
                             return (
-                                <button
-                                    key={item.id}
-                                    className="gallery-card"
-                                    onClick={() => setLightboxItem(item)}
-                                >
-                                    <div className="gallery-card-thumb-wrap">
-                                        {thumb ? (
-                                            <img src={thumb} alt={`صورة ${item.id}`} className="gallery-card-thumb" />
-                                        ) : (
-                                            <div className="gallery-card-no-thumb">
-                                                <ImageIcon size={36} />
-                                            </div>
-                                        )}
-                                        <span className={`gallery-mode-badge ${mb.className}`}>
-                                            <ModeIcon size={12} />
-                                            {mb.label}
-                                        </span>
-                                        <span className={`gallery-status-badge ${sb.className}`}>
-                                            <sb.Icon size={12} />
-                                            {sb.label}
-                                        </span>
-                                    </div>
-                                    <div className="gallery-card-meta">
-                                        <span className="gallery-card-product">
-                                            {item.product_name || 'بدون منتج مرتبط'}
-                                        </span>
-                                        <span className="gallery-card-date">{fmtDate(item.created_at)}</span>
-                                    </div>
-                                </button>
+                                <div key={item.id} className="gallery-card-wrap">
+                                    <button
+                                        className="gallery-card"
+                                        onClick={() => setLightboxItem(item)}
+                                    >
+                                        <div className="gallery-card-thumb-wrap">
+                                            {thumb && !isBroken ? (
+                                                <img
+                                                    src={thumb}
+                                                    alt={`صورة ${item.id}`}
+                                                    className="gallery-card-thumb"
+                                                    onError={() => markBroken(item.id)}
+                                                    loading="lazy"
+                                                />
+                                            ) : (
+                                                <div className="gallery-card-no-thumb">
+                                                    {isBroken ? (
+                                                        <>
+                                                            <AlertTriangle size={32} />
+                                                            <span className="gallery-card-no-thumb-text">
+                                                                الصورة غير متاحة
+                                                            </span>
+                                                            <span className="gallery-card-no-thumb-hint">
+                                                                (انتهت صلاحية الرابط)
+                                                            </span>
+                                                        </>
+                                                    ) : (
+                                                        <ImageIcon size={36} />
+                                                    )}
+                                                </div>
+                                            )}
+                                            <span className={`gallery-mode-badge ${mb.className}`}>
+                                                <ModeIcon size={12} />
+                                                {mb.label}
+                                            </span>
+                                            <span className={`gallery-status-badge ${sb.className}`}>
+                                                <sb.Icon size={12} />
+                                                {sb.label}
+                                            </span>
+                                        </div>
+                                        <div className="gallery-card-meta">
+                                            <span className="gallery-card-product">
+                                                {item.product_name || 'بدون منتج مرتبط'}
+                                            </span>
+                                            <span className="gallery-card-date">{fmtDate(item.created_at)}</span>
+                                        </div>
+                                    </button>
+                                    <button
+                                        className="gallery-card-delete-btn"
+                                        onClick={e => {
+                                            e.stopPropagation()
+                                            setDeleteCandidate(item)
+                                        }}
+                                        aria-label={`حذف السجل ${item.id}`}
+                                        title="حذف"
+                                        type="button"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
                             )
                         })}
                     </div>
@@ -200,6 +266,26 @@ export default function GenerationsGallery({ onBackToChoose }: Props) {
                 <GalleryLightbox
                     item={lightboxItem}
                     onClose={() => setLightboxItem(null)}
+                    onDelete={() => setDeleteCandidate(lightboxItem)}
+                    escapeDisabled={!!deleteCandidate}
+                />
+            )}
+
+            {/* ─── DELETE CONFIRMATION ────────────────────────────────── */}
+            {deleteCandidate && (
+                <DeleteConfirmDialog
+                    item={deleteCandidate}
+                    onCancel={() => {
+                        deleteMutation.reset()
+                        setDeleteCandidate(null)
+                    }}
+                    onConfirm={() => deleteMutation.mutate(deleteCandidate.id)}
+                    isDeleting={deleteMutation.isPending}
+                    error={
+                        deleteMutation.isError
+                            ? 'فشل الحذف. حاول مرة أخرى.'
+                            : null
+                    }
                 />
             )}
         </div>
@@ -209,9 +295,11 @@ export default function GenerationsGallery({ onBackToChoose }: Props) {
 interface LightboxProps {
     item: DecorativeGeneration
     onClose: () => void
+    onDelete: () => void
+    escapeDisabled?: boolean
 }
 
-function GalleryLightbox({ item, onClose }: LightboxProps) {
+function GalleryLightbox({ item, onClose, onDelete, escapeDisabled }: LightboxProps) {
     const mode = getMode(item)
     const mb = modeBadge(mode)
     const sb = statusBadge(item.status)
@@ -219,12 +307,13 @@ function GalleryLightbox({ item, onClose }: LightboxProps) {
     const titleId = `lightbox-title-${item.id}`
 
     useEffect(() => {
+        if (escapeDisabled) return
         const handleKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') onClose()
         }
         window.addEventListener('keydown', handleKey)
         return () => window.removeEventListener('keydown', handleKey)
-    }, [onClose])
+    }, [onClose, escapeDisabled])
 
     return (
         <div className="lightbox-overlay" onClick={onClose}>
@@ -250,14 +339,26 @@ function GalleryLightbox({ item, onClose }: LightboxProps) {
                         </span>
                         <span className="lightbox-meta-date">{fmtDate(item.created_at)}</span>
                     </div>
-                    <button
-                        className="lightbox-close-btn"
-                        onClick={onClose}
-                        aria-label="إغلاق"
-                        type="button"
-                    >
-                        <XCircle size={22} />
-                    </button>
+                    <div className="lightbox-header-actions">
+                        <button
+                            className="lightbox-delete-btn"
+                            onClick={onDelete}
+                            aria-label="حذف هذا السجل"
+                            title="حذف"
+                            type="button"
+                        >
+                            <Trash2 size={16} />
+                            <span>حذف</span>
+                        </button>
+                        <button
+                            className="lightbox-close-btn"
+                            onClick={onClose}
+                            aria-label="إغلاق"
+                            type="button"
+                        >
+                            <XCircle size={22} />
+                        </button>
+                    </div>
                 </div>
 
                 <div className="lightbox-body">
@@ -310,6 +411,93 @@ function GalleryLightbox({ item, onClose }: LightboxProps) {
                             </div>
                         )}
                     </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+interface DeleteConfirmProps {
+    item: DecorativeGeneration
+    onCancel: () => void
+    onConfirm: () => void
+    isDeleting: boolean
+    error: string | null
+}
+
+function DeleteConfirmDialog({ item, onCancel, onConfirm, isDeleting, error }: DeleteConfirmProps) {
+    const cancelBtnRef = useRef<HTMLButtonElement>(null)
+    const previouslyFocused = useRef<HTMLElement | null>(null)
+
+    useEffect(() => {
+        previouslyFocused.current = document.activeElement as HTMLElement | null
+        cancelBtnRef.current?.focus()
+        return () => {
+            previouslyFocused.current?.focus?.()
+        }
+    }, [])
+
+    useEffect(() => {
+        const handleKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && !isDeleting) {
+                e.stopPropagation()
+                onCancel()
+            }
+        }
+        window.addEventListener('keydown', handleKey)
+        return () => window.removeEventListener('keydown', handleKey)
+    }, [onCancel, isDeleting])
+
+    return (
+        <div
+            className="lightbox-overlay confirm-overlay"
+            onClick={() => !isDeleting && onCancel()}
+        >
+            <div
+                className="confirm-dialog"
+                onClick={e => e.stopPropagation()}
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="confirm-dialog-title"
+            >
+                <div className="confirm-dialog-icon">
+                    <AlertTriangle size={32} />
+                </div>
+                <h3 id="confirm-dialog-title">حذف هذا السجل؟</h3>
+                <p>
+                    سيتم حذف السجل #{item.id}
+                    {item.product_name ? ` (${item.product_name})` : ''} نهائياً ولا يمكن استرجاعه.
+                </p>
+                {error && (
+                    <div className="error-msg confirm-dialog-error">
+                        <XCircle size={16} /> {error}
+                    </div>
+                )}
+                <div className="confirm-dialog-actions">
+                    <button
+                        className="btn-secondary"
+                        onClick={onCancel}
+                        disabled={isDeleting}
+                        type="button"
+                    >
+                        إلغاء
+                    </button>
+                    <button
+                        className="btn-danger"
+                        onClick={onConfirm}
+                        disabled={isDeleting}
+                        type="button"
+                    >
+                        {isDeleting ? (
+                            <>
+                                <Loader2 size={14} className="spin" /> جاري الحذف...
+                            </>
+                        ) : (
+                            <>
+                                <Trash2 size={14} /> نعم، احذف
+                            </>
+                        )}
+                    </button>
                 </div>
             </div>
         </div>

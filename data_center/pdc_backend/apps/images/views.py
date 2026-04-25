@@ -331,7 +331,7 @@ def generation_history(request):
     return Response(DecorativeGenerationSerializer(qs, many=True).data)
 
 
-@api_view(['GET'])
+@api_view(['GET', 'DELETE'])
 @permission_classes([IsSuperAdmin])
 def generation_detail(request, generation_id):
     try:
@@ -340,6 +340,15 @@ def generation_detail(request, generation_id):
         )
     except DecorativeGeneration.DoesNotExist:
         return Response({'error': 'السجل غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'DELETE':
+        gen_id = gen.id
+        gen.delete()
+        return Response(
+            {'success': True, 'id': gen_id, 'message': 'تم حذف السجل'},
+            status=status.HTTP_200_OK,
+        )
+
     return Response(DecorativeGenerationSerializer(gen).data)
 
 

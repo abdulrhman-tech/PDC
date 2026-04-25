@@ -182,6 +182,8 @@ export const decorativeAPI = {
         api.get(`/decorative/${generationId}/status/`),
     detail: (generationId: number) =>
         api.get(`/decorative/${generationId}/`),
+    delete: (generationId: number) =>
+        api.delete(`/decorative/${generationId}/`),
     history: (params?: { product_id?: number; page_size?: number }) =>
         api.get('/decorative/history/', { params }),
     credits: () => api.get('/decorative/credits/'),

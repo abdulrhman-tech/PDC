@@ -3106,3 +3106,139 @@
     align-self: center;
     text-decoration: none;
 }
+
+/* ─── Gallery card delete + broken image ─────────────────────────────────── */
+
+.gallery-card-wrap {
+    position: relative;
+    display: flex;
+}
+.gallery-card-wrap > .gallery-card {
+    flex: 1;
+    width: 100%;
+}
+.gallery-card-delete-btn {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(220, 38, 38, 0.85);
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.18s ease;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 2;
+}
+.gallery-card-wrap:hover .gallery-card-delete-btn,
+.gallery-card-wrap:focus-within .gallery-card-delete-btn {
+    opacity: 1;
+}
+.gallery-card-delete-btn:hover {
+    background: rgba(220, 38, 38, 1);
+    transform: scale(1.06);
+}
+
+.gallery-card-no-thumb-text {
+    display: block;
+    margin-top: 8px;
+    font-size: 0.78rem;
+    color: rgba(255, 200, 200, 0.92);
+    font-weight: 600;
+}
+.gallery-card-no-thumb-hint {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.68rem;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+/* ─── Lightbox header actions + delete button ────────────────────────────── */
+
+.lightbox-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.lightbox-delete-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(220, 38, 38, 0.18);
+    border: 1px solid rgba(220, 38, 38, 0.45);
+    color: #fca5a5;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.18s ease;
+}
+.lightbox-delete-btn:hover {
+    background: rgba(220, 38, 38, 0.32);
+    border-color: rgba(220, 38, 38, 0.8);
+    color: #fee2e2;
+}
+
+/* ─── Confirmation Dialog ────────────────────────────────────────────────── */
+
+.confirm-overlay {
+    z-index: 10000;
+}
+.confirm-dialog {
+    background: var(--color-surface, #15161a);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    padding: 28px 28px 20px;
+    max-width: 440px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.confirm-dialog-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 14px;
+    background: rgba(220, 38, 38, 0.15);
+    border: 1px solid rgba(220, 38, 38, 0.4);
+    border-radius: 50%;
+    color: #fca5a5;
+}
+.confirm-dialog h3 {
+    margin: 0 0 8px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #fff;
+}
+.confirm-dialog p {
+    margin: 0 0 20px;
+    font-size: 0.92rem;
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.6;
+}
+.confirm-dialog-error {
+    margin-bottom: 16px;
+}
+.confirm-dialog-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+.confirm-dialog-actions .btn-secondary,
+.confirm-dialog-actions .btn-danger {
+    min-width: 130px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
