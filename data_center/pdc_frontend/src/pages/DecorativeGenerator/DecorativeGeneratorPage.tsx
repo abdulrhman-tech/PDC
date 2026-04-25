@@ -6,10 +6,11 @@ import {
     Image as ImageIcon, Sparkles, Eye, Settings2, Loader2,
     CheckCircle2, XCircle, ArrowRight, ArrowLeft, Download,
     Clock, RefreshCw, Wand2, Upload, Layers, Package, Camera,
-    LayoutGrid, Box, Grid3x3,
+    LayoutGrid, Box, Grid3x3, ImagePlus,
 } from 'lucide-react'
 import { getTemplatesForMode, type RoomTemplate } from './roomTemplates'
 import MultiProductGenerator from './MultiProductGenerator'
+import ProductImageEnhancer from './ProductImageEnhancer'
 import './DecorativeGeneratorPage.css'
 
 type GenerationMode = 'surface' | 'product' | 'showcase'
@@ -172,7 +173,7 @@ const MODE_INFO: Record<GenerationMode, { icon: typeof Layers; label: string; de
 
 type WizardStep = 'type_select' | 'source' | 'analysis' | 'settings' | 'confirm' | 'generating' | 'result'
 
-type TopMode = 'choose' | 'single' | 'multi'
+type TopMode = 'choose' | 'single' | 'multi' | 'enhance'
 
 export default function DecorativeGeneratorPage() {
     const [topMode, setTopMode] = useState<TopMode>('choose')
@@ -183,6 +184,10 @@ export default function DecorativeGeneratorPage() {
 
     if (topMode === 'single') {
         return <SingleProductGenerator onBackToChoose={() => setTopMode('choose')} />
+    }
+
+    if (topMode === 'enhance') {
+        return <ProductImageEnhancer onBackToChoose={() => setTopMode('choose')} />
     }
 
     return (
@@ -216,6 +221,16 @@ export default function DecorativeGeneratorPage() {
                         <div className="mode-chooser-title">مشهد متعدد المنتجات</div>
                         <div className="mode-chooser-desc">
                             ادمج عدة منتجات في مشهد واحد متكامل — أرضية مع جدار مع أثاث في غرفة واحدة
+                        </div>
+                    </button>
+
+                    <button className="mode-chooser-card" onClick={() => setTopMode('enhance')}>
+                        <div className="mode-chooser-icon mode-chooser-icon--enhance">
+                            <ImagePlus size={48} />
+                        </div>
+                        <div className="mode-chooser-title">تحسين صورة منتج</div>
+                        <div className="mode-chooser-desc">
+                            حسّن جودة صورة منتج ضعيفة أو مأخوذة بالجوال وحوّلها إلى صورة كتالوج نظيفة على خلفية بيضاء
                         </div>
                     </button>
                 </div>

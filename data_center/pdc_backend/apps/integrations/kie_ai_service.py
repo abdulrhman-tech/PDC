@@ -642,6 +642,99 @@ def build_showcase_prompt(analysis: dict, selections: dict) -> str:
     )
 
 
+# ─── Image Enhancement (Clean Product Photo) ─────────────────────────────────
+
+ENHANCE_BACKGROUNDS = {
+    'pure_white': 'pure seamless white studio background (#FFFFFF), perfectly clean and uniform',
+    'soft_white': 'soft white studio background with very subtle gradient from white to light grey at the bottom',
+    'light_gray': 'light neutral grey studio background (#EEEEEE), perfectly clean and uniform',
+    'cream': 'warm cream / off-white studio background (#F5F1E8), perfectly clean and uniform',
+}
+
+ENHANCE_LIGHTING = {
+    'studio': 'professional studio softbox lighting, balanced from multiple sides, no harsh shadows, commercial product photography lighting',
+    'soft': 'soft diffused lighting from above, gentle even illumination, minimal shadows',
+    'dramatic': 'directional key lighting from one side with subtle fill light, defined but soft shadow on the opposite side',
+    'top_down': 'soft top-down lighting, even illumination across the product, subtle shadow directly below',
+}
+
+ENHANCE_FRAMING = {
+    'tight': 'product fills most of the frame with minimal padding around it, tight crop',
+    'normal': 'product centered with comfortable padding around all sides, balanced composition',
+    'loose': 'product centered with generous white space around it, airy minimal composition',
+}
+
+ENHANCE_SHADOW = {
+    'natural': 'natural soft realistic contact shadow directly beneath the product, grounding it on the surface',
+    'subtle': 'very subtle soft shadow beneath the product, almost imperceptible',
+    'none': 'no visible shadow, product appears to float on the background',
+}
+
+
+def build_enhance_prompt(analysis: dict, selections: dict, custom_notes: str = '') -> str:
+    product_desc = analysis.get('description_en', 'product')
+    product_type = analysis.get('product_type_en', '') or analysis.get('product_type', '')
+    color = analysis.get('color_en', '') or analysis.get('color', '')
+    surface = analysis.get('surface_en', '') or analysis.get('surface', '')
+
+    bg = _get_val(ENHANCE_BACKGROUNDS, selections.get('background', 'pure_white'),
+                  ENHANCE_BACKGROUNDS['pure_white'])
+    light = _get_val(ENHANCE_LIGHTING, selections.get('lighting', 'studio'),
+                     ENHANCE_LIGHTING['studio'])
+    framing = _get_val(ENHANCE_FRAMING, selections.get('framing', 'normal'),
+                       ENHANCE_FRAMING['normal'])
+    shadow = _get_val(ENHANCE_SHADOW, selections.get('shadow', 'natural'),
+                      ENHANCE_SHADOW['natural'])
+    q = _quality(selections)
+
+    type_part = f" ({product_type})" if product_type else ''
+    color_part = f", {color}" if color else ''
+    surface_part = f", {surface} finish" if surface else ''
+
+    prompt = (
+        f"{UNIVERSAL_OPENER} "
+        f"PROFESSIONAL PRODUCT PHOTOGRAPHY of the EXACT SAME product shown in the reference image — "
+        f"{product_desc}{type_part}{color_part}{surface_part}. "
+        f"This is a CATALOG / E-COMMERCE product shot, NOT an interior scene, NOT a lifestyle scene, NOT decorative. "
+        f"\n\nGOAL: Take the reference product and present it as a clean, sharp, well-lit catalog photo. "
+        f"FIX any quality issues from the source: enhance sharpness, fix exposure, remove motion blur, "
+        f"correct white balance, recover detail in shadows and highlights, denoise, increase clarity. "
+        f"Make any unclear textures, veining, patterns, or fine details CRISP and CLEARLY VISIBLE. "
+        f"\n\nCRITICAL — PRODUCT IDENTITY: The product MUST remain 100% IDENTICAL to the reference image: "
+        f"ZERO variation in shape, proportions, color, finish, design, pattern, texture, materials, "
+        f"or any visual feature. Do NOT redesign, restyle, recolor, reinterpret, or substitute the product. "
+        f"Do NOT add, remove, or modify any feature of the product. "
+        f"This is a quality-enhancement / clean-shot operation, not a creative reimagining. "
+        f"\n\nBACKGROUND: {bg}. "
+        f"Remove the original background completely. "
+        f"No floor texture, no wall texture, no room context, no other objects, no props. "
+        f"\n\nCOMPOSITION: {framing}. Product centered horizontally, slight upper-third placement. "
+        f"\n\nLIGHTING: {light}. {shadow}. "
+        f"\n\nQUALITY: {q}, sharp focus throughout the product, "
+        f"high resolution, commercial e-commerce photography quality. "
+        f"\n\nNO text, NO logo, NO watermark, NO label overlays, NO room context, NO scene, NO additional objects. "
+        f"{UNIVERSAL_FOOTER}"
+    )
+
+    if custom_notes and custom_notes.strip():
+        prompt += f' Additional notes: {custom_notes.strip()}.'
+
+    return prompt
+
+
+ENHANCE_NEGATIVE_PROMPT = (
+    "blurry, low quality, distorted, unrealistic proportions, "
+    "interior scene, room, lifestyle scene, decorative scene, installation context, "
+    "floor visible, wall visible, furniture, props, additional objects, multiple products, "
+    "redesigned product, different product, modified product, recolored product, restyled product, "
+    "different shape, different pattern, different texture, different finish, "
+    "collage, grid layout, split screen, multiple angles in one image, "
+    "comparison layout, side by side, before and after, dual view, "
+    "text overlay, logo, watermark, brand name, label, "
+    "noisy background, textured background, gradient extreme, dark background, colored background"
+)
+
+
 def build_prompt(
     product_description: str = '',
     placement: str = 'main feature',

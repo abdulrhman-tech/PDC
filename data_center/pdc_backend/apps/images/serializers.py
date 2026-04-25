@@ -72,6 +72,36 @@ class GenerateDecorativeSerializer(serializers.Serializer):
     custom_notes = serializers.CharField(required=False, default='', allow_blank=True)
 
 
+class EnhanceImageSerializer(serializers.Serializer):
+    generation_id = serializers.IntegerField()
+    background = serializers.ChoiceField(
+        choices=['pure_white', 'soft_white', 'light_gray', 'cream'],
+        default='pure_white',
+    )
+    lighting = serializers.ChoiceField(
+        choices=['studio', 'soft', 'dramatic', 'top_down'],
+        default='studio',
+    )
+    framing = serializers.ChoiceField(
+        choices=['tight', 'normal', 'loose'],
+        default='normal',
+    )
+    shadow = serializers.ChoiceField(
+        choices=['natural', 'subtle', 'none'],
+        default='natural',
+    )
+    aspect_ratio = serializers.ChoiceField(
+        choices=['1:1', '4:3', '3:4', '16:9', '9:16'],
+        default='1:1',
+    )
+    render_quality = serializers.ChoiceField(
+        choices=['preview', 'standard', 'high'],
+        default='standard',
+    )
+    override_description_en = serializers.CharField(required=False, default='', allow_blank=True)
+    custom_notes = serializers.CharField(required=False, default='', allow_blank=True)
+
+
 class MultiProductSlotSerializer(serializers.Serializer):
     role = serializers.ChoiceField(choices=['floor', 'wall', 'focal', 'accent'])
     image_url = serializers.URLField()

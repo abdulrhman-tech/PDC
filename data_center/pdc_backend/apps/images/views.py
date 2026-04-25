@@ -13,6 +13,7 @@ from .serializers import (
     GenerateDecorativeSerializer,
     AnalyzeMultiSerializer,
     GenerateMultiSerializer,
+    EnhanceImageSerializer,
 )
 from apps.integrations.openai_service import analyze_product_image
 from apps.integrations.kie_ai_service import (
@@ -20,7 +21,9 @@ from apps.integrations.kie_ai_service import (
     get_task_status,
     build_prompt,
     build_multi_product_prompt,
+    build_enhance_prompt,
     NEGATIVE_PROMPT,
+    ENHANCE_NEGATIVE_PROMPT,
     check_credits,
 )
 from apps.products.models import Product
@@ -186,6 +189,75 @@ def generate_decorative(request):
         gen.save()
     except Exception as e:
         logger.error(f"Kie.ai task creation failed: {e}")
+        gen.status = DecorativeGenerationStatus.FAILED
+        gen.error_message = str(e)
+        gen.save()
+        return Response(
+            {'error': f'فشل إنشاء المهمة: {e}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(DecorativeGenerationSerializer(gen).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsSuperAdmin])
+def enhance_image(request):
+    """
+    Enhance / clean up a product image using the same Kie.ai pipeline.
+    Output is a clean catalog product photo (white background, sharp, well-lit) —
+    NOT a decorative scene. Reuses the analyze step (must be called first).
+    """
+    ser = EnhanceImageSerializer(data=request.data)
+    ser.is_valid(raise_exception=True)
+
+    data = ser.validated_data
+    gen_id = data.pop('generation_id')
+
+    try:
+        gen = DecorativeGeneration.objects.get(id=gen_id, created_by=request.user)
+    except DecorativeGeneration.DoesNotExist:
+        return Response({'error': 'السجل غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+
+    if gen.status not in (
+        DecorativeGenerationStatus.ANALYZED,
+        DecorativeGenerationStatus.FAILED,
+        DecorativeGenerationStatus.COMPLETED,
+    ):
+        return Response(
+            {'error': 'لا يمكن التوليد في هذه الحالة'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    analysis = dict(gen.vision_analysis or {})
+    override_desc = data.pop('override_description_en', '')
+    custom_notes = data.pop('custom_notes', '')
+
+    if override_desc:
+        analysis['description_en'] = override_desc
+
+    prompt = build_enhance_prompt(analysis, data, custom_notes=custom_notes)
+
+    gen.generation_settings = {**data, 'mode': 'enhance'}
+    gen.prompt_used = prompt
+    gen.negative_prompt = ENHANCE_NEGATIVE_PROMPT
+    gen.status = DecorativeGenerationStatus.GENERATING
+    gen.error_message = ''
+    gen.save()
+
+    resolution = QUALITY_RESOLUTION_MAP.get(data.get('render_quality', 'standard'), '2K')
+
+    try:
+        task_id = create_generation_task(
+            prompt=prompt,
+            image_url=gen.source_image_url,
+            aspect_ratio=data.get('aspect_ratio', '1:1'),
+            resolution=resolution,
+        )
+        gen.kie_task_id = task_id
+        gen.save()
+    except Exception as e:
+        logger.error(f"Kie.ai enhancement task creation failed: {e}")
         gen.status = DecorativeGenerationStatus.FAILED
         gen.error_message = str(e)
         gen.save()

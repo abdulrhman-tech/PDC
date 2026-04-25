@@ -202,6 +202,17 @@ export const decorativeAPI = {
     }) => api.post('/decorative/analyze-multi/', data),
     generateMulti: (data: object) =>
         api.post('/decorative/generate-multi/', data),
+    enhance: (data: {
+        generation_id: number
+        background?: string
+        lighting?: string
+        framing?: string
+        shadow?: string
+        aspect_ratio?: string
+        render_quality?: string
+        override_description_en?: string
+        custom_notes?: string
+    }) => api.post('/decorative/enhance/', data),
 }
 
 export const sapAPI = {

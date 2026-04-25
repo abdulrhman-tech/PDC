@@ -13,4 +13,5 @@ urlpatterns = [
     path('bulk-images-upload/', views.bulk_images_upload, name='bulk-images-upload'),
     path('analyze-multi/', views.analyze_multi, name='decorative-analyze-multi'),
     path('generate-multi/', views.generate_multi, name='decorative-generate-multi'),
+    path('enhance/', views.enhance_image, name='decorative-enhance'),
 ]
