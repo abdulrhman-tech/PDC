@@ -6,11 +6,12 @@ import {
     Image as ImageIcon, Sparkles, Eye, Settings2, Loader2,
     CheckCircle2, XCircle, ArrowRight, ArrowLeft, Download,
     Clock, RefreshCw, Wand2, Upload, Layers, Package, Camera,
-    LayoutGrid, Box, Grid3x3, ImagePlus,
+    LayoutGrid, Box, Grid3x3, ImagePlus, FolderOpen,
 } from 'lucide-react'
 import { getTemplatesForMode, type RoomTemplate } from './roomTemplates'
 import MultiProductGenerator from './MultiProductGenerator'
 import ProductImageEnhancer from './ProductImageEnhancer'
+import GenerationsGallery from './GenerationsGallery'
 import './DecorativeGeneratorPage.css'
 
 type GenerationMode = 'surface' | 'product' | 'showcase'
@@ -173,7 +174,7 @@ const MODE_INFO: Record<GenerationMode, { icon: typeof Layers; label: string; de
 
 type WizardStep = 'type_select' | 'source' | 'analysis' | 'settings' | 'confirm' | 'generating' | 'result'
 
-type TopMode = 'choose' | 'single' | 'multi' | 'enhance'
+type TopMode = 'choose' | 'single' | 'multi' | 'enhance' | 'gallery'
 
 export default function DecorativeGeneratorPage() {
     const [topMode, setTopMode] = useState<TopMode>('choose')
@@ -190,6 +191,10 @@ export default function DecorativeGeneratorPage() {
         return <ProductImageEnhancer onBackToChoose={() => setTopMode('choose')} />
     }
 
+    if (topMode === 'gallery') {
+        return <GenerationsGallery onBackToChoose={() => setTopMode('choose')} />
+    }
+
     return (
         <div className="decorative-page">
             <div className="decorative-header">
@@ -200,6 +205,12 @@ export default function DecorativeGeneratorPage() {
                 <p className="decorative-subtitle">
                     اختر نوع المشهد الذي تريد إنشاءه
                 </p>
+                <button
+                    className="gallery-open-btn"
+                    onClick={() => setTopMode('gallery')}
+                >
+                    <FolderOpen size={16} /> معرض جميع الصور
+                </button>
             </div>
 
             <div className="decorative-content">
