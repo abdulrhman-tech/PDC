@@ -269,6 +269,61 @@ def enhance_image(request):
     return Response(DecorativeGenerationSerializer(gen).data)
 
 
+_KIE_ALLOWED_IMAGE_HOSTS = {
+    'storage.googleapis.com',
+    'cdn.kie.ai',
+    'kie.ai',
+    'img.kie.ai',
+    'aiquickdraw.com',
+    'tempfile.aiquickdraw.com',
+    'res.cloudinary.com',
+}
+
+
+def _persist_kie_result_to_r2(gen, kie_url: str) -> str:
+    """
+    Download a result image from kie.ai's temporary host and re-upload it to R2
+    so the URL remains valid permanently. Returns the new R2 URL on success,
+    or the original kie_url on failure (failure is logged, never raised).
+    """
+    parsed = urlparse(kie_url)
+    host = parsed.hostname or ''
+    if not any(host == a or host.endswith('.' + a) for a in _KIE_ALLOWED_IMAGE_HOSTS):
+        logger.warning(f"persist_kie_result: disallowed host '{host}', keeping original URL")
+        return kie_url
+
+    try:
+        resp = http_requests.get(kie_url, timeout=30, allow_redirects=False)
+        if resp.status_code in (301, 302, 303, 307, 308):
+            redirect_url = resp.headers.get('Location', '')
+            redirect_host = urlparse(redirect_url).hostname or ''
+            if not any(redirect_host == a or redirect_host.endswith('.' + a) for a in _KIE_ALLOWED_IMAGE_HOSTS):
+                logger.warning(f"persist_kie_result: disallowed redirect host '{redirect_host}'")
+                return kie_url
+            resp = http_requests.get(redirect_url, timeout=30, allow_redirects=False)
+        resp.raise_for_status()
+        image_bytes = resp.content
+        content_type = resp.headers.get('Content-Type', 'image/jpeg').split(';')[0].strip()
+        if not content_type.startswith('image/'):
+            logger.warning(f"persist_kie_result: unexpected content-type '{content_type}'")
+            return kie_url
+    except Exception as e:
+        logger.warning(f"persist_kie_result: failed to download for gen={gen.id}: {e}")
+        return kie_url
+
+    ext_map = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}
+    ext = ext_map.get(content_type, 'jpg')
+    r2_key = f"decorative/results/{gen.id}_{uuid.uuid4().hex[:12]}.{ext}"
+
+    try:
+        r2_url = upload_bytes(r2_key, image_bytes, content_type=content_type)
+        logger.info(f"persist_kie_result: gen={gen.id} stored at {r2_key}")
+        return r2_url
+    except Exception as e:
+        logger.error(f"persist_kie_result: R2 upload failed for gen={gen.id}: {e}")
+        return kie_url
+
+
 @api_view(['GET'])
 @permission_classes([IsSuperAdmin])
 def check_generation_status(request, generation_id):
@@ -292,7 +347,8 @@ def check_generation_status(request, generation_id):
     if task_status['state'] == 'success':
         urls = task_status.get('result_urls', [])
         if urls:
-            gen.result_image_url = urls[0]
+            persistent_url = _persist_kie_result_to_r2(gen, urls[0])
+            gen.result_image_url = persistent_url
             gen.status = DecorativeGenerationStatus.COMPLETED
         else:
             gen.status = DecorativeGenerationStatus.FAILED
