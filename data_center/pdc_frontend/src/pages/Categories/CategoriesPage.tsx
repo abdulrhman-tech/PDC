@@ -8,8 +8,9 @@ import {
     ChevronDown, ChevronLeft, Plus, Trash2, Edit3, Save, X,
     ToggleLeft, ToggleRight, FolderPlus, GitBranch, Tag, Layers,
     Hash, ChevronRight, Upload, Download, CheckCircle, AlertCircle, FileSpreadsheet,
+    Languages,
 } from 'lucide-react'
-import { categoriesAPI } from '@/api/client'
+import { categoriesAPI, translateAPI } from '@/api/client'
 import { toast } from 'react-toastify'
 import type { CategoryTreeNode } from '@/types'
 
@@ -115,6 +116,37 @@ function CategoryModal({
     const childLevel = parentNode ? parentNode.level + 1 : 1
     const levelInfo = LEVEL_COLORS[isEdit ? existing!.level : childLevel] ?? LEVEL_COLORS[1]
 
+    /* Auto-translate: detects which name field is filled and translates into the other.
+       If both are filled, prefers Ar→En (Arabic is the required source field). */
+    const [translating, setTranslating] = useState(false)
+    const handleAutoTranslate = async () => {
+        const ar = form.name_ar.trim()
+        const en = form.name_en.trim()
+        if (!ar && !en) {
+            toast.warning('اكتب الاسم بالعربية أو الإنجليزية أولاً')
+            return
+        }
+        const direction: 'ar→en' | 'en→ar' = ar ? 'ar→en' : 'en→ar'
+        setTranslating(true)
+        try {
+            const text = direction === 'ar→en' ? ar : en
+            const res = await translateAPI.translate(text, direction === 'ar→en' ? 'ar' : 'en', direction === 'ar→en' ? 'en' : 'ar')
+            const translated = res.data.translated?.trim()
+            if (!translated) {
+                toast.error('لم تنجح الترجمة')
+                return
+            }
+            if (direction === 'ar→en') set('name_en', translated)
+            else                       set('name_ar', translated)
+            toast.success(direction === 'ar→en' ? 'تمت الترجمة إلى الإنجليزية' : 'تمت الترجمة إلى العربية')
+        } catch (e: unknown) {
+            const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'فشلت الترجمة'
+            toast.error(msg)
+        } finally {
+            setTranslating(false)
+        }
+    }
+
     const mutation = useMutation({
         mutationFn: () => {
             const payload = { ...form, parent: parentNode?.id ?? null }
@@ -171,6 +203,27 @@ function CategoryModal({
                             <input style={{ ...iStyle, direction: 'ltr', textAlign: 'left' }} value={form.name_en} onChange={e => set('name_en', e.target.value)} placeholder="Floor Ceramics" />
                         </div>
                     </div>
+
+                    {/* Auto-translate button */}
+                    <button
+                        type="button"
+                        onClick={handleAutoTranslate}
+                        disabled={translating || (!form.name_ar.trim() && !form.name_en.trim())}
+                        title="يكتشف اللغة الموجودة ويترجم تلقائياً إلى اللغة الأخرى"
+                        style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                            padding: '8px 14px', background: 'rgba(74,144,217,0.08)',
+                            border: '1px dashed rgba(74,144,217,0.4)', borderRadius: 8,
+                            color: '#4A90D9', fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                            cursor: translating || (!form.name_ar.trim() && !form.name_en.trim()) ? 'not-allowed' : 'pointer',
+                            opacity: translating || (!form.name_ar.trim() && !form.name_en.trim()) ? 0.5 : 1,
+                            transition: 'all 0.15s',
+                        }}
+                    >
+                        {translating
+                            ? <><span className="spinner" style={{ width: 13, height: 13 }} /> جاري الترجمة...</>
+                            : <><Languages size={14} /> ترجمة تلقائية (عربي ↔ إنجليزي)</>}
+                    </button>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                         <div>

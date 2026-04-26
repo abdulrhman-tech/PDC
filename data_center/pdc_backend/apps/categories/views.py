@@ -61,14 +61,62 @@ class CategoryViewSet(viewsets.ModelViewSet):
     # ── Tree view ────────────────────────────────────────────────
     @action(detail=False, methods=['get'], url_path='tree')
     def tree(self, request):
-        """Returns full hierarchical tree (root nodes with nested children)."""
-        roots = Category.objects.filter(
-            parent=None
-        ).prefetch_related(
-            'children__children__children__children__attribute_schemas',
-            'attribute_schemas',
-        ).order_by('sort_order', 'order', 'name_ar')
-        return Response(CategoryTreeSerializer(roots, many=True).data)
+        """
+        Returns full hierarchical tree (root nodes with nested children).
+        Optimized: uses 2 queries total (categories + attribute counts),
+        builds the tree in Python — avoids the N+1 storm of the recursive
+        serializer (~150 queries for a 50-node tree).
+        """
+        from django.db.models import Count
+
+        # Single query for ALL categories
+        cats = list(
+            Category.objects.all()
+            .order_by('sort_order', 'order', 'name_ar')
+            .values(
+                'id', 'code', 'name_ar', 'name_en', 'level', 'sort_order',
+                'is_active', 'icon', 'description_ar', 'parent_id',
+            )
+        )
+
+        # Single query: schemas live on root categories only
+        attr_counts = {
+            row['category_id']: row['c']
+            for row in CategoryAttributeSchema.objects
+                .values('category_id')
+                .annotate(c=Count('id'))
+        }
+
+        # Index by id and group children by parent
+        by_id = {c['id']: c for c in cats}
+        children_map = {}
+        for c in cats:
+            children_map.setdefault(c['parent_id'], []).append(c)
+
+        # Resolve each node's root ancestor (with memoization)
+        root_cache = {}
+        def root_id(cid):
+            if cid in root_cache:
+                return root_cache[cid]
+            cur = by_id.get(cid)
+            while cur and cur['parent_id'] is not None and cur['parent_id'] in by_id:
+                cur = by_id[cur['parent_id']]
+            rid = cur['id'] if cur else cid
+            root_cache[cid] = rid
+            return rid
+
+        # Pass 1: compute attribute_count via root resolution (needs parent_id intact on all nodes)
+        for c in cats:
+            c['attribute_count'] = attr_counts.get(root_id(c['id']), 0)
+
+        # Pass 2: attach children + counts, then strip parent_id
+        for c in cats:
+            kids = children_map.get(c['id'], [])
+            c['children'] = kids
+            c['children_count'] = len(kids)
+            del c['parent_id']  # not part of the tree response shape
+
+        return Response(children_map.get(None, []))
 
     # ── Flat list (for dropdowns) ─────────────────────────────────
     @action(detail=False, methods=['get'], url_path='flat')
