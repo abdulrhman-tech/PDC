@@ -32,19 +32,21 @@ _LANG_NAMES = {
 }
 
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def translate_text(request):
-    text = (request.data.get('text') or '').strip()
-    src = (request.data.get('from') or 'ar').lower()
-    dst = (request.data.get('to') or 'en').lower()
+class TranslateError(Exception):
+    """Raised when both Gemini and OpenAI translation attempts fail."""
+    def __init__(self, message: str, friendly: str):
+        super().__init__(message)
+        self.friendly = friendly
 
-    if not text:
-        return Response({'error': 'text is required'}, status=status.HTTP_400_BAD_REQUEST)
-    if len(text) > 2000:
-        return Response({'error': 'text too long (max 2000 chars)'},
-                        status=status.HTTP_400_BAD_REQUEST)
 
+def translate_text_core(text: str, src: str, dst: str) -> tuple[str, str]:
+    """
+    Core translation: tries Gemini first, falls back to OpenAI.
+    Returns (translated_text, provider_name). Raises TranslateError on failure.
+    Reusable from other apps that need bulk translation.
+    """
+    src = (src or 'ar').lower()
+    dst = (dst or 'en').lower()
     src_name = _LANG_NAMES.get(src, src)
     dst_name = _LANG_NAMES.get(dst, dst)
 
@@ -63,7 +65,7 @@ def translate_text(request):
         translated = result if isinstance(result, str) else str(result)
         translated = translated.strip().strip('"').strip("'").strip()
         if translated:
-            return Response({'translated': translated, 'provider': 'gemini'})
+            return translated, 'gemini'
     except Exception as exc:
         gemini_error = exc
         logger.warning('Gemini translation failed, will try OpenAI: %s',
@@ -72,9 +74,10 @@ def translate_text(request):
     try:
         translated = _openai_translate(text, src_name, dst_name)
         if translated:
-            return Response({'translated': translated, 'provider': 'openai'})
-        return Response({'error': 'تعذّر استخراج الترجمة'},
-                        status=status.HTTP_502_BAD_GATEWAY)
+            return translated, 'openai'
+        raise TranslateError('empty translation', 'تعذّر استخراج الترجمة')
+    except TranslateError:
+        raise
     except Exception as exc:
         logger.exception('OpenAI translation also failed')
         msg = str(gemini_error or exc)
@@ -87,5 +90,25 @@ def translate_text(request):
             friendly = 'انتهت مهلة الاتصال بخدمة الترجمة. حاول مرة ثانية.'
         else:
             friendly = 'فشلت الترجمة. حاول مرة ثانية.'
-        return Response({'error': friendly},
+        raise TranslateError(msg, friendly) from exc
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def translate_text(request):
+    text = (request.data.get('text') or '').strip()
+    src = (request.data.get('from') or 'ar').lower()
+    dst = (request.data.get('to') or 'en').lower()
+
+    if not text:
+        return Response({'error': 'text is required'}, status=status.HTTP_400_BAD_REQUEST)
+    if len(text) > 2000:
+        return Response({'error': 'text too long (max 2000 chars)'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        translated, provider = translate_text_core(text, src, dst)
+        return Response({'translated': translated, 'provider': provider})
+    except TranslateError as exc:
+        return Response({'error': exc.friendly},
                         status=status.HTTP_502_BAD_GATEWAY)

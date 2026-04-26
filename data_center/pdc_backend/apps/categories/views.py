@@ -7,8 +7,11 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.db import transaction
+from django.db.models import Q
 from django.http import HttpResponse
+from django.utils import timezone
 import io
+import logging
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from apps.categories.models import Category, SubCategory, CategoryAttributeSchema
@@ -17,6 +20,17 @@ from apps.categories.serializers import (
     CategoryFlatSerializer, CategoryAttributeSchemaSerializer,
     SubCategorySerializer, SubCategoryWriteSerializer,
 )
+from apps.integrations.translate_views import translate_text_core, TranslateError
+
+logger = logging.getLogger(__name__)
+
+
+def _untranslated_qs():
+    """Categories that are missing one of the two name fields."""
+    return Category.objects.filter(
+        (Q(name_en='') & ~Q(name_ar='')) |
+        (Q(name_ar='') & ~Q(name_en=''))
+    )
 
 
 class IsSuperAdminOrReadOnly(permissions.BasePermission):
@@ -491,6 +505,105 @@ class CategoryViewSet(viewsets.ModelViewSet):
             return Response(SubCategorySerializer(sub).data, status=status.HTTP_201_CREATED)
         subs = SubCategory.objects.filter(category=category).order_by('name_ar')
         return Response(SubCategorySerializer(subs, many=True).data)
+
+    # ── Bulk translate untranslated categories ────────────────────
+    @action(
+        detail=False, methods=['get'], url_path='untranslated-count',
+        permission_classes=[permissions.IsAuthenticated],
+    )
+    def untranslated_count(self, request):
+        """Returns how many categories are missing one of (name_ar, name_en)."""
+        return Response({'count': _untranslated_qs().count()})
+
+    @action(
+        detail=False, methods=['post'], url_path='bulk-translate',
+        permission_classes=[permissions.IsAuthenticated],
+    )
+    def bulk_translate(self, request):
+        """
+        Translate up to `limit` categories that are missing one of name_ar/name_en.
+        Sequential processing to respect external translator rate limits.
+
+        Inputs:
+          limit:       int, default 20, hard-capped at 50.
+          exclude_ids: list[int] (optional) — IDs the client knows already
+                       failed in this session. Skipped for selection AND for
+                       the returned `remaining` count, so a few persistently
+                       failing items can never starve the rest of the queue.
+
+        Writes go through `Category.objects.filter(pk=...).update(...)` so the
+        hierarchy logic in `Category.save()` (level recomputation, descendant
+        cascade) is intentionally NOT triggered — translation is a name-only
+        write and must not touch tree shape.
+
+        Response: {processed, succeeded, failed, remaining, errors, succeeded_ids}
+        """
+        if not request.user.is_authenticated or request.user.role != 'super_admin':
+            return Response({'detail': 'غير مسموح.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            limit = int(request.data.get('limit', 20))
+        except (TypeError, ValueError):
+            limit = 20
+        limit = max(1, min(limit, 50))
+
+        raw_excludes = request.data.get('exclude_ids') or []
+        if not isinstance(raw_excludes, list):
+            raw_excludes = []
+        exclude_ids = [int(x) for x in raw_excludes if isinstance(x, (int, str)) and str(x).isdigit()]
+
+        qs = _untranslated_qs().exclude(id__in=exclude_ids).order_by('id')[:limit]
+        succeeded = 0
+        succeeded_ids: list[int] = []
+        failed = 0
+        errors: list[dict] = []
+        now = timezone.now()
+
+        for cat in qs:
+            try:
+                if not cat.name_en and cat.name_ar:
+                    translated, _ = translate_text_core(cat.name_ar, 'ar', 'en')
+                    Category.objects.filter(pk=cat.pk).update(
+                        name_en=translated.strip(), updated_at=now,
+                    )
+                elif not cat.name_ar and cat.name_en:
+                    translated, _ = translate_text_core(cat.name_en, 'en', 'ar')
+                    Category.objects.filter(pk=cat.pk).update(
+                        name_ar=translated.strip(), updated_at=now,
+                    )
+                else:
+                    continue  # nothing to do (race with another writer)
+                succeeded += 1
+                succeeded_ids.append(cat.id)
+            except TranslateError as exc:
+                failed += 1
+                if len(errors) < 10:
+                    errors.append({
+                        'id': cat.id, 'code': cat.code,
+                        'name': cat.name_ar or cat.name_en,
+                        'error': exc.friendly,
+                    })
+            except Exception as exc:  # pragma: no cover — defensive
+                failed += 1
+                logger.exception('Unexpected bulk-translate error for cat %s', cat.id)
+                if len(errors) < 10:
+                    errors.append({
+                        'id': cat.id, 'code': cat.code,
+                        'name': cat.name_ar or cat.name_en,
+                        'error': str(exc)[:200],
+                    })
+
+        # `remaining` excludes the IDs the client has marked as known-failed,
+        # so the loop's stop condition is honest about real progress.
+        remaining = _untranslated_qs().exclude(id__in=exclude_ids).count()
+        return Response({
+            'processed': succeeded + failed,
+            'succeeded': succeeded,
+            'succeeded_ids': succeeded_ids,
+            'failed': failed,
+            'remaining': remaining,
+            'errors': errors,
+        })
 
 
 class CategoryAttributeSchemaViewSet(viewsets.ModelViewSet):

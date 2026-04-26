@@ -823,6 +823,23 @@ export default function CategoriesPage() {
         return count(tree)
     }, [tree])
 
+    /* Count categories missing one of the two name fields — drives the
+       "ترجمة الكل" button visibility and label. Computed from the cached
+       tree so we don't need an extra round-trip. */
+    const untranslatedCount = useMemo(() => {
+        const count = (nodes: CategoryTreeNode[]): number => {
+            let n = 0
+            for (const node of nodes) {
+                const ar = (node.name_ar ?? '').trim()
+                const en = (node.name_en ?? '').trim()
+                if ((!ar && en) || (!en && ar)) n++
+                n += count(node.children)
+            }
+            return n
+        }
+        return count(tree)
+    }, [tree])
+
     /* Filter the tree by search query — keeps any node that matches OR has a
        matching descendant. Auto-collects ancestors of matches so they expand. */
     const { displayTree, ancestorIds, matchCount } = useMemo(() => {
@@ -918,6 +935,93 @@ export default function CategoriesPage() {
     const collapseAll = () => {
         setExpandedIds(new Set())
         setSearchCollapsed(new Set())
+    }
+
+    /* ── Bulk translate all untranslated categories ─────────────────
+       Calls the backend in chunks until `remaining` (server-side, after
+       excluding known-failed IDs) reaches 0. Items that fail in a chunk
+       are added to a skip-list so they can never starve later items —
+       the same persistently-failing IDs would otherwise be re-picked
+       forever because the backend selects by ascending id. */
+    const [bulkProgress, setBulkProgress] = useState<{
+        running: boolean; done: number; total: number; failed: number
+        lastError?: string
+    } | null>(null)
+
+    const handleBulkTranslate = async () => {
+        if (untranslatedCount === 0) return
+        const ok = window.confirm(
+            `سيتم ترجمة ${untranslatedCount} تصنيف غير مترجم. قد يستغرق ذلك بضع دقائق. هل تريد المتابعة؟`,
+        )
+        if (!ok) return
+
+        const total = untranslatedCount
+        setBulkProgress({ running: true, done: 0, total, failed: 0 })
+
+        let done = 0
+        let failed = 0
+        let lastError: string | undefined
+        const failedIds = new Set<number>()
+        const CHUNK = 20
+        // Cap iterations generously vs an idealised perfect run, so we
+        // can never spin forever even if the server keeps reporting
+        // non-zero `remaining` due to a bug.
+        const MAX_ITERATIONS = Math.ceil(total / CHUNK) * 3 + 5
+
+        try {
+            for (let i = 0; i < MAX_ITERATIONS; i++) {
+                let res
+                try {
+                    res = (await categoriesAPI.bulkTranslate(CHUNK, [...failedIds])).data
+                } catch (e: unknown) {
+                    const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+                        ?? 'فشل الاتصال بخدمة الترجمة'
+                    lastError = msg
+                    setBulkProgress(p => p ? { ...p, lastError: msg, running: false } : p)
+                    toast.error(msg)
+                    return
+                }
+
+                done += res.succeeded
+                failed += res.failed
+                if (res.errors?.[0]?.error) lastError = res.errors[0].error
+                // Remember items that just failed so the next chunk doesn't
+                // re-select the same starving rows.
+                for (const err of res.errors ?? []) failedIds.add(err.id)
+
+                setBulkProgress({
+                    running: res.remaining > 0, done, total, failed, lastError,
+                })
+
+                // Server `remaining` already excludes our failedIds, so when
+                // it's 0 there is genuinely nothing left to attempt.
+                if (res.remaining === 0) break
+                // Belt-and-braces: if a chunk made literally zero forward
+                // motion (no successes AND no new failures to grow the
+                // skip-list), the loop would stall — bail out.
+                if (res.processed === 0) {
+                    toast.warning(
+                        `توقّفت الترجمة — تبقّى ${res.remaining} تصنيف لم يُعالَج.`,
+                    )
+                    break
+                }
+            }
+
+            queryClient.invalidateQueries({ queryKey: ['categories-tree'] })
+            queryClient.invalidateQueries({ queryKey: ['categories-flat'] })
+
+            if (failed === 0 && done > 0) {
+                toast.success(`تم ترجمة ${done} تصنيف بنجاح`)
+            } else if (done > 0) {
+                toast.warning(`نُجحت ترجمة ${done}، وفشلت ${failed}`)
+            } else if (failed > 0) {
+                toast.error(`فشلت الترجمة لجميع التصنيفات (${failed})`)
+            }
+        } finally {
+            setBulkProgress(p => p ? { ...p, running: false } : p)
+            // Auto-clear the progress banner after a few seconds
+            setTimeout(() => setBulkProgress(null), 5000)
+        }
     }
 
     /* Template download */
@@ -1111,6 +1215,18 @@ export default function CategoriesPage() {
                                 </button>
                             )}
                         </div>
+                        {untranslatedCount > 0 && (
+                            <button
+                                className="btn btn-secondary"
+                                onClick={handleBulkTranslate}
+                                disabled={bulkProgress?.running}
+                                title={`ترجمة ${untranslatedCount} تصنيف غير مكتمل تلقائياً`}
+                            >
+                                {bulkProgress?.running
+                                    ? <><span className="spinner" style={{ width: 14, height: 14 }} /> جاري الترجمة...</>
+                                    : <><Languages size={14} /> ترجمة الكل ({untranslatedCount})</>}
+                            </button>
+                        )}
                         <button
                             className="btn btn-ghost"
                             onClick={expandAll}
@@ -1127,6 +1243,51 @@ export default function CategoriesPage() {
                             <ChevronsDownUp size={14} /> طيّ الكل
                         </button>
                     </div>
+
+                    {/* Bulk-translate progress banner */}
+                    {bulkProgress && (
+                        <div style={{
+                            marginBottom: 12, padding: '10px 14px', borderRadius: 8,
+                            background: bulkProgress.failed > 0 && !bulkProgress.running
+                                ? 'rgba(224,112,112,0.08)' : 'rgba(74,144,217,0.08)',
+                            border: `1px solid ${bulkProgress.failed > 0 && !bulkProgress.running
+                                ? 'rgba(224,112,112,0.25)' : 'rgba(74,144,217,0.25)'}`,
+                            fontSize: 12,
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 10 }}>
+                                <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                                    {bulkProgress.running
+                                        ? `جاري الترجمة... ${bulkProgress.done} / ${bulkProgress.total}`
+                                        : `انتهى — تمت ترجمة ${bulkProgress.done} من ${bulkProgress.total}` +
+                                          (bulkProgress.failed > 0 ? ` (فشل ${bulkProgress.failed})` : '')}
+                                </span>
+                                {!bulkProgress.running && (
+                                    <button
+                                        onClick={() => setBulkProgress(null)}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+                            <div style={{
+                                height: 4, background: 'var(--color-surface-hover)',
+                                borderRadius: 2, overflow: 'hidden',
+                            }}>
+                                <div style={{
+                                    height: '100%',
+                                    width: `${bulkProgress.total > 0 ? Math.min(100, (bulkProgress.done + bulkProgress.failed) * 100 / bulkProgress.total) : 0}%`,
+                                    background: bulkProgress.failed > 0 ? '#e07070' : '#4A90D9',
+                                    transition: 'width 0.3s',
+                                }} />
+                            </div>
+                            {bulkProgress.lastError && (
+                                <div style={{ marginTop: 6, fontSize: 11, color: '#e07070' }}>
+                                    آخر خطأ: {bulkProgress.lastError}
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {/* Search result summary */}
                     {searchQuery && (

@@ -99,6 +99,14 @@ export const categoriesAPI = {
     downloadImportTemplate:  () => api.get('/categories/import-excel/template/', { responseType: 'blob' }),
     importExcel:             (formData: FormData) =>
         api.post('/categories/import-excel/', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+    untranslatedCount:       () =>
+        api.get<{ count: number }>('/categories/untranslated-count/'),
+    bulkTranslate:           (limit = 20, exclude_ids: number[] = []) =>
+        api.post<{
+            processed: number; succeeded: number; succeeded_ids: number[];
+            failed: number; remaining: number;
+            errors: { id: number; code: string; name: string; error: string }[];
+        }>('/categories/bulk-translate/', { limit, exclude_ids }),
     // Legacy subcategories (backward compat)
     subcategories:  (catId: number) => api.get(`/categories/${catId}/subcategories/`),
     addSubcategory: (catId: number, data: object) => api.post(`/categories/${catId}/subcategories/`, data),
