@@ -249,10 +249,17 @@ export default function ProductCatalogPage() {
     })
 
     const allCats: CategoryFlat[] = Array.isArray(categoriesData) ? categoriesData : (categoriesData?.results ?? [])
+    // Top-strip: only level-1 active categories that actually contain products
+    // (directly or via any descendant — backend computes has_products by walking
+    // up the parent chain from every product's category). Use `!== false` so
+    // older cached responses without the field gracefully fall back to "show",
+    // avoiding an empty strip during the cache-warmup window after deploy.
     const categories: CategoryFlat[] = allCats
-        .filter((c: CategoryFlat) => c.level === 1 && c.is_active !== false)
+        .filter((c: CategoryFlat) => c.level === 1 && c.is_active !== false && c.has_products !== false)
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name_ar.localeCompare(b.name_ar, 'ar'))
-    const childrenOf = (parentId: number): CategoryFlat[] => allCats.filter((c: CategoryFlat) => c.parent === parentId)
+    // Sub-tabs (children dropdown) likewise only show populated children.
+    const childrenOf = (parentId: number): CategoryFlat[] =>
+        allCats.filter((c: CategoryFlat) => c.parent === parentId && c.has_products !== false)
 
     /* ── Category-tabs horizontal scroll: track overflow so we can show arrows ── */
     const tabsScrollRef = useRef<HTMLDivElement>(null)

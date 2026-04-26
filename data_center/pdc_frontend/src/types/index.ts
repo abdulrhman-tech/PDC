@@ -136,6 +136,7 @@ export interface CategoryFlat {
     path_ar: string
     path_en: string
     has_children: boolean
+    has_products?: boolean
 }
 
 export interface Brand {

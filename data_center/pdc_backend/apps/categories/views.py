@@ -16,6 +16,7 @@ import re
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from apps.categories.models import Category, SubCategory, CategoryAttributeSchema
+from apps.products.models import Product
 from apps.categories.serializers import (
     CategorySerializer, CategoryWriteSerializer, CategoryTreeSerializer,
     CategoryFlatSerializer, CategoryAttributeSchemaSerializer,
@@ -250,6 +251,25 @@ class CategoryViewSet(viewsets.ModelViewSet):
             .values_list('parent_id', flat=True).distinct()
         )
 
+        # Categories that have products (directly or via descendants).
+        # Step 1: distinct category_ids actually referenced by Product rows.
+        direct_with_products = set(
+            Product.objects.exclude(category_id__isnull=True)
+            .values_list('category_id', flat=True).distinct()
+        )
+        # Step 2: walk up parent chain so every ancestor of a leaf-with-products
+        # is also marked. This way a level-1 root counts as "has products" as long
+        # as any descendant under it has at least one product.
+        has_products: set[int] = set()
+        for cid in direct_with_products:
+            node_id = cid
+            seen: set[int] = set()
+            while node_id is not None and node_id not in seen:
+                seen.add(node_id)
+                has_products.add(node_id)
+                parent = by_id.get(node_id)
+                node_id = parent.get('parent_id') if parent else None
+
         def _path(cat, field):
             parts: list[str] = []
             node = cat
@@ -275,6 +295,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
                 'path_ar': _path(c, 'name_ar'),
                 'path_en': _path(c, 'name_en'),
                 'has_children': c['id'] in parent_ids,
+                'has_products': c['id'] in has_products,
             })
         # Match the previous ordering: level, sort_order, name_ar
         out.sort(key=lambda r: (r['level'], r['sort_order'] or 0, r['name_ar'] or ''))
