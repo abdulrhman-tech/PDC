@@ -107,6 +107,14 @@ export const categoriesAPI = {
             failed: number; remaining: number;
             errors: { id: number; code: string; name: string; error: string }[];
         }>('/categories/bulk-translate/', { limit, exclude_ids }),
+    attributesUntranslatedCount: () =>
+        api.get<{ count: number }>('/categories/attributes-untranslated-count/'),
+    bulkTranslateAttributes: (limit = 15, exclude_ids: number[] = []) =>
+        api.post<{
+            processed: number; succeeded: number; succeeded_ids: number[];
+            failed: number; remaining: number;
+            errors: { id: number; key: string; name: string; error: string }[];
+        }>('/categories/bulk-translate-attributes/', { limit, exclude_ids }),
     // Legacy subcategories (backward compat)
     subcategories:  (catId: number) => api.get(`/categories/${catId}/subcategories/`),
     addSubcategory: (catId: number, data: object) => api.post(`/categories/${catId}/subcategories/`, data),

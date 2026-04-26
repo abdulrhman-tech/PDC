@@ -32,6 +32,34 @@ _LANG_NAMES = {
 }
 
 
+_GEMINI_CIRCUIT = {'failures': 0, 'open_until': 0.0}
+_GEMINI_THRESHOLD = 3
+_GEMINI_COOLDOWN_S = 600.0
+
+
+def _gemini_is_open() -> bool:
+    import time as _t
+    return _t.time() < _GEMINI_CIRCUIT['open_until']
+
+
+def _gemini_record_failure(exc: Exception) -> None:
+    import time as _t
+    msg = str(exc).lower()
+    if '429' in msg or 'quota' in msg or 'exceeded' in msg or 'rate' in msg:
+        _GEMINI_CIRCUIT['failures'] += 1
+        if _GEMINI_CIRCUIT['failures'] >= _GEMINI_THRESHOLD:
+            _GEMINI_CIRCUIT['open_until'] = _t.time() + _GEMINI_COOLDOWN_S
+            logger.warning(
+                'Gemini circuit OPEN for %ss after %s consecutive quota errors',
+                int(_GEMINI_COOLDOWN_S), _GEMINI_CIRCUIT['failures']
+            )
+
+
+def _gemini_record_success() -> None:
+    _GEMINI_CIRCUIT['failures'] = 0
+    _GEMINI_CIRCUIT['open_until'] = 0.0
+
+
 class TranslateError(Exception):
     """Raised when both Gemini and OpenAI translation attempts fail."""
     def __init__(self, message: str, friendly: str):
@@ -60,16 +88,19 @@ def translate_text_core(text: str, src: str, dst: str) -> tuple[str, str]:
     )
 
     gemini_error = None
-    try:
-        result = call_gemini(prompt, config_key='flash')
-        translated = result if isinstance(result, str) else str(result)
-        translated = translated.strip().strip('"').strip("'").strip()
-        if translated:
-            return translated, 'gemini'
-    except Exception as exc:
-        gemini_error = exc
-        logger.warning('Gemini translation failed, will try OpenAI: %s',
-                       str(exc)[:200])
+    if not _gemini_is_open():
+        try:
+            result = call_gemini(prompt, config_key='flash')
+            translated = result if isinstance(result, str) else str(result)
+            translated = translated.strip().strip('"').strip("'").strip()
+            if translated:
+                _gemini_record_success()
+                return translated, 'gemini'
+        except Exception as exc:
+            gemini_error = exc
+            _gemini_record_failure(exc)
+            logger.warning('Gemini translation failed, will try OpenAI: %s',
+                           str(exc)[:200])
 
     try:
         translated = _openai_translate(text, src_name, dst_name)

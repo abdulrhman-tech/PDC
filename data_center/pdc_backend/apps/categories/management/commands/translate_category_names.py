@@ -11,7 +11,9 @@ from django.core.management.base import BaseCommand
 from django.db.models import Q
 
 from apps.categories.models import Category
-from apps.integrations.translate_views import translate_text_core, TranslateError
+from apps.integrations.translate_views import (
+    translate_text_core, TranslateError, _GEMINI_CIRCUIT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +43,20 @@ class Command(BaseCommand):
                             help='Show what would be translated without saving.')
         parser.add_argument('--verbose-progress', action='store_true',
                             help='Print every translation result.')
+        parser.add_argument('--skip-gemini', action='store_true',
+                            help='Skip Gemini entirely and use OpenAI only.')
 
     def handle(self, *args, **opts):
         limit = opts['limit']
         sleep_s = opts['sleep']
         dry = opts['dry_run']
         verbose = opts['verbose_progress']
+        if opts['skip_gemini']:
+            import time as _t
+            _GEMINI_CIRCUIT['open_until'] = _t.time() + 24 * 3600
+            self.stdout.write(self.style.WARNING(
+                'Gemini disabled for this run; using OpenAI only.'
+            ))
 
         qs = Category.objects.filter(
             Q(name_ar__regex=r'[\u0600-\u06FF]')

@@ -559,6 +559,7 @@ interface AttrsResponse {
 
 function AttributesPanel({ catId }: { catId: number }) {
     const [adding, setAdding] = useState(false)
+    const qc = useQueryClient()
     const { data, isLoading } = useQuery<AttrsResponse>({
         queryKey: ['cat-attrs', catId],
         queryFn: () => categoriesAPI.attributes(catId).then(r => r.data),
@@ -568,6 +569,75 @@ function AttributesPanel({ catId }: { catId: number }) {
     const isInherited = data?.is_inherited ?? false
     const rootId      = data?.root_id ?? catId
     const rootName    = data?.root_name_ar ?? ''
+
+    // ── Bulk-translate attribute labels ─────────────────────────────
+    // Counts how many schemas across the whole DB still need translation.
+    // Refetches whenever this panel opens so the button stays accurate.
+    const { data: untranslated } = useQuery<{ count: number }>({
+        queryKey: ['attr-untranslated-count'],
+        queryFn: () => categoriesAPI.attributesUntranslatedCount().then(r => r.data),
+        staleTime: 30_000,
+    })
+    const untranslatedCount = untranslated?.count ?? 0
+
+    const [translating, setTranslating] = useState<{
+        running: boolean; done: number; total: number; failed: number; lastError?: string
+    } | null>(null)
+
+    const handleTranslateAttrs = async () => {
+        if (untranslatedCount === 0) return
+        const ok = window.confirm(
+            `سيتم ترجمة ${untranslatedCount} حقل ديناميكي تلقائياً. قد يستغرق ذلك بضع دقائق. هل تريد المتابعة؟`,
+        )
+        if (!ok) return
+
+        const total = untranslatedCount
+        setTranslating({ running: true, done: 0, total, failed: 0 })
+
+        let done = 0
+        let failed = 0
+        let lastError: string | undefined
+        const failedIds = new Set<number>()
+        const CHUNK = 15
+        const MAX_ITERATIONS = Math.ceil(total / CHUNK) * 3 + 5
+
+        try {
+            for (let i = 0; i < MAX_ITERATIONS; i++) {
+                let res
+                try {
+                    res = (await categoriesAPI.bulkTranslateAttributes(CHUNK, [...failedIds])).data
+                } catch (e: unknown) {
+                    const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+                        ?? 'فشل الاتصال بخدمة الترجمة'
+                    lastError = msg
+                    setTranslating(p => p ? { ...p, lastError: msg, running: false } : p)
+                    toast.error(msg)
+                    return
+                }
+                done += res.succeeded
+                failed += res.failed
+                if (res.errors?.[0]?.error) lastError = res.errors[0].error
+                for (const err of res.errors ?? []) failedIds.add(err.id)
+                setTranslating({ running: res.remaining > 0, done, total, failed, lastError })
+                if (res.remaining === 0) break
+                if (res.processed === 0) {
+                    toast.warning(`توقّفت الترجمة — تبقّى ${res.remaining} حقل لم يُعالَج.`)
+                    break
+                }
+            }
+            // Refresh the panels and the global count
+            qc.invalidateQueries({ queryKey: ['cat-attrs'] })
+            qc.invalidateQueries({ queryKey: ['attr-untranslated-count'] })
+            qc.invalidateQueries({ queryKey: ['categories-tree'] })
+
+            if (failed === 0 && done > 0) toast.success(`تمت ترجمة ${done} حقل بنجاح`)
+            else if (done > 0)            toast.warning(`نُجحت ترجمة ${done}، وفشلت ${failed}`)
+            else if (failed > 0)          toast.error(`فشلت الترجمة لجميع الحقول (${failed})`)
+        } finally {
+            setTranslating(p => p ? { ...p, running: false } : p)
+            setTimeout(() => setTranslating(null), 6000)
+        }
+    }
 
     return (
         <div style={{ padding: '14px 16px', borderTop: '1px solid var(--color-border)', background: 'var(--color-surface-hover)', borderRadius: '0 0 10px 10px' }}>
@@ -589,13 +659,67 @@ function AttributesPanel({ catId }: { catId: number }) {
                         </span>
                     )}
                 </div>
-                {/* Only root (L1) can add attributes */}
-                {!isInherited && !adding && (
-                    <button className="btn btn-secondary btn-sm" onClick={() => setAdding(true)}>
-                        <Plus size={12} /> إضافة حقل
-                    </button>
-                )}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {untranslatedCount > 0 && (
+                        <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={handleTranslateAttrs}
+                            disabled={translating?.running}
+                            title={`ترجمة ${untranslatedCount} حقل ديناميكي تلقائياً`}
+                        >
+                            {translating?.running
+                                ? <><span className="spinner" style={{ width: 12, height: 12 }} /> جاري الترجمة...</>
+                                : <><Languages size={12} /> ترجمة الحقول ({untranslatedCount})</>}
+                        </button>
+                    )}
+                    {/* Only root (L1) can add attributes */}
+                    {!isInherited && !adding && (
+                        <button className="btn btn-secondary btn-sm" onClick={() => setAdding(true)}>
+                            <Plus size={12} /> إضافة حقل
+                        </button>
+                    )}
+                </div>
             </div>
+
+            {/* Translation progress banner */}
+            {translating && (
+                <div style={{
+                    marginBottom: 10, padding: '8px 12px', borderRadius: 6,
+                    background: translating.failed > 0 && !translating.running
+                        ? 'rgba(224,112,112,0.08)' : 'rgba(74,144,217,0.08)',
+                    border: `1px solid ${translating.failed > 0 && !translating.running
+                        ? 'rgba(224,112,112,0.25)' : 'rgba(74,144,217,0.25)'}`,
+                    fontSize: 12,
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span>
+                            {translating.running
+                                ? `جاري الترجمة... ${translating.done} / ${translating.total}`
+                                : `انتهى — تمت ترجمة ${translating.done} من ${translating.total}` +
+                                  (translating.failed > 0 ? ` (فشل ${translating.failed})` : '')}
+                        </span>
+                        {!translating.running && (
+                            <button onClick={() => setTranslating(null)}
+                                style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}>
+                                <X size={12} />
+                            </button>
+                        )}
+                    </div>
+                    <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                        <div style={{
+                            height: '100%',
+                            width: `${translating.total > 0 ? Math.min(100, (translating.done + translating.failed) * 100 / translating.total) : 0}%`,
+                            background: translating.failed > 0 ? '#e07070' : '#4A90D9',
+                            transition: 'width 0.3s',
+                        }} />
+                    </div>
+                    {translating.lastError && (
+                        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-text-secondary)' }}>
+                            آخر خطأ: {translating.lastError}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Content */}
             {isLoading ? (

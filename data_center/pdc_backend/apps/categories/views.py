@@ -66,6 +66,73 @@ def _untranslated_qs():
     return Category.objects.filter(needs_ar | needs_en | swapped)
 
 
+# ── Attribute-schema translation helpers ─────────────────────────────────
+_CODE_RX = re.compile(r'^[A-Za-z0-9_]+$')
+
+
+def _looks_like_code(text: str) -> bool:
+    """True if the string is empty or looks like a SAP-style identifier
+    (UPPER_SNAKE_CASE / no spaces / digits, e.g. ``RECTIFIED_OR_NOT_RECTIFIED``).
+    Such values are not real human labels and should be replaced."""
+    t = (text or '').strip()
+    if not t:
+        return True
+    if ' ' in t:
+        return False
+    return bool(_CODE_RX.match(t))
+
+
+# Short uppercase tokens that should stay as acronyms even in title-cased
+# output (countries, codes, units commonly written ALL-CAPS).
+_KNOWN_ACRONYMS = {
+    'KSA', 'USA', 'UAE', 'UK', 'EU', 'UN', 'AC', 'DC', 'TV',
+    'PVC', 'MDF', 'HDF', 'CNC', 'LED', 'LCD', 'PCS', 'KG', 'MM',
+    'CM', 'M2', 'M3', 'QTY', 'SKU', 'SAP', 'ID', 'API', 'URL',
+    'VAT', 'GST', 'GDP',
+}
+
+
+def _humanize_code(text: str) -> str:
+    """Turn ``RECTIFIED_OR_NOT_RECTIFIED`` / ``commission_color`` / ``KSA_COST``
+    into ``Rectified Or Not Rectified`` / ``Commission Color`` / ``KSA Cost``.
+    Returns ``text`` unchanged if it already looks human-readable."""
+    t = (text or '').strip()
+    if not t:
+        return ''
+    if not _looks_like_code(t):
+        return t
+
+    # When the WHOLE token is upper-snake (typical for SAP codes), every
+    # part is uppercase so we can't use "is upper" as a signal. Title-case
+    # each word, preserving only well-known acronyms.
+    all_upper = t.replace('_', '').replace('-', '').isupper()
+    parts = re.split(r'[_\-\s]+', t)
+    out = []
+    for p in parts:
+        if not p:
+            continue
+        if all_upper:
+            out.append(p if p in _KNOWN_ACRONYMS else p.capitalize())
+        else:
+            # Mixed-case input: preserve any token already in upper as acronym
+            if p.isupper():
+                out.append(p)
+            else:
+                out.append(p.capitalize())
+    return ' '.join(out)
+
+
+def _untranslated_attrs_qs():
+    """Attribute schemas whose Arabic label is missing OR whose English label
+    is empty / still a raw code (UPPER_SNAKE_CASE)."""
+    needs_ar = Q(field_label_ar='') | ~Q(field_label_ar__regex=_ARABIC_RX)
+    needs_en = (
+        Q(field_label_en='')
+        | Q(field_label_en__regex=r'^[A-Z][A-Z0-9_]*$')  # all-upper code
+    )
+    return CategoryAttributeSchema.objects.filter(needs_ar | needs_en).distinct()
+
+
 class IsSuperAdminOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
@@ -671,6 +738,146 @@ class CategoryViewSet(viewsets.ModelViewSet):
         # `remaining` excludes the IDs the client has marked as known-failed,
         # so the loop's stop condition is honest about real progress.
         remaining = _untranslated_qs().exclude(id__in=exclude_ids).count()
+        return Response({
+            'processed': succeeded + failed,
+            'succeeded': succeeded,
+            'succeeded_ids': succeeded_ids,
+            'failed': failed,
+            'remaining': remaining,
+            'errors': errors,
+        })
+
+    # ── Bulk-translate attribute schema labels ─────────────────────────
+    @action(
+        detail=False, methods=['get', 'post'], url_path='attributes-untranslated-count',
+        permission_classes=[permissions.IsAuthenticated],
+    )
+    def attributes_untranslated_count(self, request):
+        """Return how many attribute schemas still need Arabic/English labels."""
+        return Response({'count': _untranslated_attrs_qs().count()})
+
+    @action(
+        detail=False, methods=['post'], url_path='bulk-translate-attributes',
+        permission_classes=[permissions.IsAuthenticated],
+    )
+    def bulk_translate_attributes(self, request):
+        """
+        Translate up to `limit` attribute-schema labels (field_label_ar /
+        field_label_en) that look like raw SAP codes (UPPER_SNAKE_CASE) or
+        are missing the expected script.
+
+        Inputs:
+          limit:       int, default 15, hard-capped at 40.
+          exclude_ids: list[int] (optional) — schema IDs the client knows
+                       already failed in this session.
+
+        Response: {processed, succeeded, succeeded_ids, failed, remaining, errors}
+        """
+        if not request.user.is_authenticated or request.user.role != 'super_admin':
+            return Response({'detail': 'غير مسموح.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            limit = int(request.data.get('limit', 15))
+        except (TypeError, ValueError):
+            limit = 15
+        limit = max(1, min(limit, 40))
+
+        raw_excludes = request.data.get('exclude_ids') or []
+        if not isinstance(raw_excludes, list):
+            raw_excludes = []
+        exclude_ids = [int(x) for x in raw_excludes if isinstance(x, (int, str)) and str(x).isdigit()]
+
+        qs = _untranslated_attrs_qs().exclude(id__in=exclude_ids).order_by('id')[:limit]
+        succeeded = 0
+        succeeded_ids: list[int] = []
+        failed = 0
+        errors: list[dict] = []
+
+        ar_re = re.compile(_ARABIC_RX)
+        la_re = re.compile(_LATIN_RX)
+
+        for sch in qs:
+            try:
+                ar = (sch.field_label_ar or '').strip()
+                en = (sch.field_label_en or '').strip()
+                key = (sch.field_key or '').strip()
+
+                ar_has_arabic = bool(ar_re.search(ar))
+                en_is_code    = (not en) or _looks_like_code(en)
+
+                # Build a usable English source string. Prefer existing EN if
+                # it's already human-readable; otherwise humanize the EN code,
+                # the AR code, or fall back to the field key. NEVER fall back
+                # to Arabic text — `field_label_en` must end up in Latin.
+                if en and not _looks_like_code(en):
+                    en_source = en
+                elif en:
+                    en_source = _humanize_code(en)
+                elif ar and not ar_has_arabic:
+                    en_source = _humanize_code(ar)
+                elif key:
+                    en_source = _humanize_code(key)
+                else:
+                    en_source = ''
+
+                # If we still have no usable English source AND the only thing
+                # we have is Arabic text, translate AR→EN to populate it.
+                if not en_source and ar_has_arabic:
+                    translated, _ = translate_text_core(ar, 'ar', 'en')
+                    translated = (translated or '').strip()
+                    if not la_re.search(translated):
+                        raise TranslateError(
+                            f'No Latin letters in AR→EN result for "{ar}"',
+                            'لا يوجد محتوى قابل للترجمة (رمز/اختصار فقط)',
+                        )
+                    en_source = translated
+
+                if not en_source:
+                    raise TranslateError(
+                        f'No source text for schema {sch.id}',
+                        'لا يوجد نص قابل للترجمة',
+                    )
+
+                updates: dict = {}
+                # Normalize field_label_en when it's empty or still a raw code
+                if en_is_code:
+                    updates['field_label_en'] = en_source
+
+                # Translate to Arabic when field_label_ar lacks Arabic letters
+                if not ar_has_arabic:
+                    translated, _ = translate_text_core(en_source, 'en', 'ar')
+                    translated = (translated or '').strip()
+                    if not ar_re.search(translated):
+                        raise TranslateError(
+                            f'No Arabic letters in result for "{en_source}"',
+                            'لا يوجد محتوى قابل للترجمة (رمز/اختصار فقط)',
+                        )
+                    updates['field_label_ar'] = translated
+
+                if not updates:
+                    continue  # nothing to do (race)
+                CategoryAttributeSchema.objects.filter(pk=sch.pk).update(**updates)
+                succeeded += 1
+                succeeded_ids.append(sch.id)
+            except TranslateError as exc:
+                failed += 1
+                if len(errors) < 10:
+                    errors.append({
+                        'id': sch.id, 'key': sch.field_key,
+                        'name': sch.field_label_ar or sch.field_label_en,
+                        'error': exc.friendly,
+                    })
+            except Exception as exc:  # pragma: no cover — defensive
+                failed += 1
+                logger.exception('Unexpected bulk-translate-attrs error for schema %s', sch.id)
+                if len(errors) < 10:
+                    errors.append({
+                        'id': sch.id, 'key': sch.field_key,
+                        'name': sch.field_label_ar or sch.field_label_en,
+                        'error': str(exc)[:200],
+                    })
+
+        remaining = _untranslated_attrs_qs().exclude(id__in=exclude_ids).count()
         return Response({
             'processed': succeeded + failed,
             'succeeded': succeeded,
