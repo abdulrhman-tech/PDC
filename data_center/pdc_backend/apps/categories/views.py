@@ -35,16 +35,21 @@ _LATIN_RX  = r'[A-Za-z]'
 
 def _untranslated_qs():
     """
-    Categories where one of the two language fields is effectively missing.
+    Categories where one of the two language fields is effectively missing
+    OR the two fields are swapped (Arabic text living in ``name_en`` while
+    ``name_ar`` only holds an SAP code like ``DC0000000``).
 
     "Effectively missing" means either truly empty OR filled with content
     that doesn't contain a single letter of the expected script — e.g.
     SAP codes like ``AG8200100`` stuffed into ``name_ar`` are NOT a real
     Arabic translation, so the row still needs translating.
 
-    To translate, we also need a usable source on the other side, so each
-    branch requires the *other* field to contain valid letters of its
-    own script.
+    Three repairable shapes are matched:
+      1. needs_ar — name_ar is missing/code-only AND name_en has Latin letters.
+      2. needs_en — name_en is missing/non-Latin AND name_ar has Arabic letters.
+      3. swapped  — name_ar has no Arabic letters AND name_en has Arabic letters.
+                    The bulk-translate action swaps the fields then fills the
+                    English side from the now-correct Arabic name.
     """
     needs_ar = (
         (Q(name_ar='') | ~Q(name_ar__regex=_ARABIC_RX))
@@ -54,7 +59,11 @@ def _untranslated_qs():
         (Q(name_en='') | ~Q(name_en__regex=_LATIN_RX))
         & Q(name_ar__regex=_ARABIC_RX)
     )
-    return Category.objects.filter(needs_ar | needs_en)
+    swapped = (
+        ~Q(name_ar__regex=_ARABIC_RX)
+        & Q(name_en__regex=_ARABIC_RX)
+    )
+    return Category.objects.filter(needs_ar | needs_en | swapped)
 
 
 class IsSuperAdminOrReadOnly(permissions.BasePermission):
@@ -595,6 +604,20 @@ class CategoryViewSet(viewsets.ModelViewSet):
                 en = cat.name_en or ''
                 ar_ok = bool(ar_re.search(ar))
                 en_ok = bool(la_re.search(en))
+                en_has_arabic = bool(ar_re.search(en))
+
+                # Swapped fields: name_en holds Arabic text and name_ar has
+                # no Arabic (typically an SAP code). Move the Arabic word
+                # into name_ar first, then fall through to translate the
+                # missing English side from it.
+                if not ar_ok and en_has_arabic:
+                    ar = en.strip()
+                    Category.objects.filter(pk=cat.pk).update(
+                        name_ar=ar, name_en='', updated_at=now,
+                    )
+                    en = ''
+                    ar_ok = True
+                    en_ok = False
 
                 if not ar_ok and en_ok:
                     translated, _ = translate_text_core(en, 'en', 'ar')

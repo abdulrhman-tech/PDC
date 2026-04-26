@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import { productsAPI, categoriesAPI } from "@/api/client";
 import { useThemeStore } from "@/store/themeStore";
+import { pickBilingual } from "@/i18n/bilingual";
 import type { Product, Category } from "@/types";
 
 const PRODUCTS_PER_PAGE = 4;
@@ -482,7 +483,7 @@ function TocPage({
 }) {
     const isAr = lang === "ar";
     const dir = isAr ? "rtl" : "ltr";
-    const catName = (c: Category) => (isAr ? c.name_ar : (c.name_en || c.name_ar));
+    const catName = (c: Category) => pickBilingual(c.name_ar, c.name_en, isAr);
 
     return (
         <div style={{ ...paperPage(isDark), direction: dir, display: "flex", flexDirection: "column", padding: "28px 24px 20px" }}>

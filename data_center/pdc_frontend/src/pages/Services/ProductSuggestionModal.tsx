@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { X, Upload, Trash2, Send } from 'lucide-react'
 import { categoriesAPI, submissionsAPI } from '@/api/client'
+import { pickBilingual } from '@/i18n/bilingual'
 import type { CategoryFlat } from '@/types'
 
 interface Props {
@@ -13,7 +14,7 @@ export default function ProductSuggestionModal({ onClose }: Props) {
     const { t, i18n } = useTranslation()
     const isAr = i18n.language === 'ar'
     const catName = (c: { name_ar: string; name_en?: string }) =>
-        !isAr && c.name_en ? c.name_en : c.name_ar
+        pickBilingual(c.name_ar, c.name_en, isAr)
 
     const { data: categories = [] } = useQuery<CategoryFlat[]>({
         queryKey: ['categories-flat'],

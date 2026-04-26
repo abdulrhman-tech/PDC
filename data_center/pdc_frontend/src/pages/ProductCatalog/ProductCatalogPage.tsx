@@ -11,6 +11,7 @@ import { productsAPI, categoriesAPI, brandsAPI } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { useThemeStore } from '@/store/themeStore'
 import LanguageToggle from '@/components/LanguageToggle/LanguageToggle'
+import { pickBilingual } from '@/i18n/bilingual'
 import { resetOnboarding } from '@/components/onboarding/OnboardingFlow'
 import type { Product, CategoryFlat, Brand, ProductFilters } from '@/types'
 
@@ -107,9 +108,9 @@ export default function ProductCatalogPage() {
     const { t, i18n } = useTranslation()
     const isAr = i18n.language === 'ar'
     const nameField = (item: { product_name_ar: string; product_name_en?: string }) =>
-        !isAr && item.product_name_en ? item.product_name_en : item.product_name_ar
+        pickBilingual(item.product_name_ar, item.product_name_en, isAr)
     const catName = (c: { name_ar: string; name_en?: string }) =>
-        !isAr && c.name_en ? c.name_en : c.name_ar
+        pickBilingual(c.name_ar, c.name_en, isAr)
 
     /* ── Core state ── */
     const [filters, setFilters] = useState<ProductFilters>({ page_size: 24 })
