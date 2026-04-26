@@ -185,12 +185,16 @@ function CategoryModal({
 
     const mutation = useMutation({
         mutationFn: () => {
+            // On edit, do NOT send `parent` — backend uses PATCH and would otherwise
+            // reset the existing parent to null (the modal has no parent picker).
+            // On create, parent comes from `parentNode` (or null for a root).
+            if (isEdit) {
+                return categoriesAPI.update(existing!.id, form)
+            }
             const payload = { ...form, parent: parentNode?.id ?? null }
-            return isEdit
-                ? categoriesAPI.update(existing!.id, payload)
-                : parentNode
-                    ? categoriesAPI.addChild(parentNode.id, payload)
-                    : categoriesAPI.create(payload)
+            return parentNode
+                ? categoriesAPI.addChild(parentNode.id, payload)
+                : categoriesAPI.create(payload)
         },
         onSuccess: () => {
             toast.success(isEdit ? 'تم تحديث التصنيف' : 'تمت إضافة التصنيف')

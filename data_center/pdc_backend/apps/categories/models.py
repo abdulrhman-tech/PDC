@@ -2,8 +2,10 @@
 Category models for Bayt Alebaa PDC.
 Self-referencing hierarchy up to 5 levels with dynamic attribute schemas.
 """
-from django.db import models
+from django.db import models, transaction
 from django.core.exceptions import ValidationError
+
+MAX_CATEGORY_LEVEL = 5
 
 
 class Category(models.Model):
@@ -33,17 +35,81 @@ class Category(models.Model):
         ordering = ['sort_order', 'order', 'name_ar']
 
     def clean(self):
-        if self.level > 5:
-            raise ValidationError('الحد الأقصى لمستويات التصنيف هو 5.')
+        if self.level > MAX_CATEGORY_LEVEL:
+            raise ValidationError(f'الحد الأقصى لمستويات التصنيف هو {MAX_CATEGORY_LEVEL}.')
+
+    def _check_no_cycle(self):
+        """Reject parent == self or parent in descendants. Walks up via in-memory parent chain."""
+        if not self.parent_id or not self.pk:
+            return
+        if self.parent_id == self.pk:
+            raise ValidationError('لا يمكن جعل التصنيف أبًا لنفسه.')
+        ancestor = self.parent
+        seen = set()
+        while ancestor is not None:
+            if ancestor.pk in seen:
+                raise ValidationError('سلسلة التصنيفات تحتوي على دورة.')
+            seen.add(ancestor.pk)
+            if ancestor.pk == self.pk:
+                raise ValidationError('لا يمكن جعل التصنيف تابعًا لأحد أحفاده.')
+            ancestor = ancestor.parent
+
+    def _compute_subtree_depth(self):
+        """Returns the depth of the deepest descendant relative to self (0 = no children)."""
+        frontier = list(self.children.all())
+        depth = 0
+        while frontier:
+            depth += 1
+            next_frontier = []
+            for child in frontier:
+                next_frontier.extend(child.children.all())
+            frontier = next_frontier
+        return depth
 
     def save(self, *args, **kwargs):
+        self._check_no_cycle()
         if self.parent_id:
             self.level = self.parent.level + 1
         else:
             self.level = 1
-        if self.level > 5:
-            raise ValidationError('الحد الأقصى لمستويات التصنيف هو 5.')
+        if self.level > MAX_CATEGORY_LEVEL:
+            raise ValidationError(f'الحد الأقصى لمستويات التصنيف هو {MAX_CATEGORY_LEVEL}.')
+
+        old_level = None
+        if self.pk:
+            old_level = Category.objects.filter(pk=self.pk).values_list('level', flat=True).first()
+
+        # If level is changing, pre-validate full subtree depth and run cascade atomically
+        if old_level is not None and old_level != self.level:
+            subtree_depth = self._compute_subtree_depth()
+            if self.level + subtree_depth > MAX_CATEGORY_LEVEL:
+                raise ValidationError(
+                    f'نقل هذا التصنيف يجعل عمق الشجرة يتجاوز الحد الأقصى ({MAX_CATEGORY_LEVEL}).'
+                )
+            with transaction.atomic():
+                super().save(*args, **kwargs)
+                self._recompute_descendants_level()
+            return
+
         super().save(*args, **kwargs)
+
+    def _recompute_descendants_level(self):
+        """Walk descendants breadth-first and reset each child's level to parent.level + 1.
+        Uses .update() to avoid re-triggering save() recursion. Caller should hold a transaction."""
+        frontier = list(self.children.all())
+        while frontier:
+            next_frontier = []
+            for child in frontier:
+                new_level = child.parent.level + 1
+                if new_level > MAX_CATEGORY_LEVEL:
+                    raise ValidationError(
+                        f'الحد الأقصى لمستويات التصنيف هو {MAX_CATEGORY_LEVEL}.'
+                    )
+                if child.level != new_level:
+                    Category.objects.filter(pk=child.pk).update(level=new_level)
+                    child.level = new_level
+                next_frontier.extend(child.children.all())
+            frontier = next_frontier
 
     def get_ancestors(self):
         """Returns list of ancestors from root to self (inclusive)."""
