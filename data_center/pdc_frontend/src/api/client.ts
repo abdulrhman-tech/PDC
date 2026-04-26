@@ -112,7 +112,9 @@ export const categoriesAPI = {
     bulkTranslateAttributes: (limit = 15, exclude_ids: number[] = []) =>
         api.post<{
             processed: number; succeeded: number; succeeded_ids: number[];
-            failed: number; remaining: number;
+            failed: number;
+            skipped?: number; skipped_ids?: number[];
+            remaining: number;
             errors: { id: number; key: string; name: string; error: string }[];
         }>('/categories/bulk-translate-attributes/', { limit, exclude_ids }),
     // Legacy subcategories (backward compat)

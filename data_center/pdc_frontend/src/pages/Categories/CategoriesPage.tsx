@@ -581,7 +581,8 @@ function AttributesPanel({ catId }: { catId: number }) {
     const untranslatedCount = untranslated?.count ?? 0
 
     const [translating, setTranslating] = useState<{
-        running: boolean; done: number; total: number; failed: number; lastError?: string
+        running: boolean; done: number; total: number; failed: number;
+        skipped: number; lastError?: string
     } | null>(null)
 
     const handleTranslateAttrs = async () => {
@@ -592,12 +593,16 @@ function AttributesPanel({ catId }: { catId: number }) {
         if (!ok) return
 
         const total = untranslatedCount
-        setTranslating({ running: true, done: 0, total, failed: 0 })
+        setTranslating({ running: true, done: 0, total, failed: 0, skipped: 0 })
 
         let done = 0
         let failed = 0
+        let skipped = 0
         let lastError: string | undefined
-        const failedIds = new Set<number>()
+        // Schemas to exclude from subsequent batches: anything that genuinely
+        // failed AND anything we skipped (pure codes like DECORTAKM1) so the
+        // loop terminates cleanly instead of re-processing them.
+        const excludeIds = new Set<number>()
         const CHUNK = 15
         const MAX_ITERATIONS = Math.ceil(total / CHUNK) * 3 + 5
 
@@ -605,7 +610,7 @@ function AttributesPanel({ catId }: { catId: number }) {
             for (let i = 0; i < MAX_ITERATIONS; i++) {
                 let res
                 try {
-                    res = (await categoriesAPI.bulkTranslateAttributes(CHUNK, [...failedIds])).data
+                    res = (await categoriesAPI.bulkTranslateAttributes(CHUNK, [...excludeIds])).data
                 } catch (e: unknown) {
                     const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
                         ?? 'فشل الاتصال بخدمة الترجمة'
@@ -614,11 +619,16 @@ function AttributesPanel({ catId }: { catId: number }) {
                     toast.error(msg)
                     return
                 }
-                done += res.succeeded
-                failed += res.failed
+                done    += res.succeeded
+                failed  += res.failed
+                skipped += res.skipped ?? 0
                 if (res.errors?.[0]?.error) lastError = res.errors[0].error
-                for (const err of res.errors ?? []) failedIds.add(err.id)
-                setTranslating({ running: res.remaining > 0, done, total, failed, lastError })
+                for (const err of res.errors ?? []) excludeIds.add(err.id)
+                for (const sid of res.skipped_ids ?? []) excludeIds.add(sid)
+                setTranslating({
+                    running: res.remaining > 0,
+                    done, total, failed, skipped, lastError,
+                })
                 if (res.remaining === 0) break
                 if (res.processed === 0) {
                     toast.warning(`توقّفت الترجمة — تبقّى ${res.remaining} حقل لم يُعالَج.`)
@@ -630,9 +640,11 @@ function AttributesPanel({ catId }: { catId: number }) {
             qc.invalidateQueries({ queryKey: ['attr-untranslated-count'] })
             qc.invalidateQueries({ queryKey: ['categories-tree'] })
 
-            if (failed === 0 && done > 0) toast.success(`تمت ترجمة ${done} حقل بنجاح`)
-            else if (done > 0)            toast.warning(`نُجحت ترجمة ${done}، وفشلت ${failed}`)
+            const skipNote = skipped > 0 ? ` وتم تخطّي ${skipped} رمز/اختصار` : ''
+            if (failed === 0 && done > 0) toast.success(`تمت ترجمة ${done} حقل بنجاح${skipNote}`)
+            else if (done > 0)            toast.warning(`نُجحت ترجمة ${done}، وفشلت ${failed}${skipNote}`)
             else if (failed > 0)          toast.error(`فشلت الترجمة لجميع الحقول (${failed})`)
+            else if (skipped > 0)         toast.info(`تم تخطّي ${skipped} حقل لأنها رموز/اختصارات فقط`)
         } finally {
             setTranslating(p => p ? { ...p, running: false } : p)
             setTimeout(() => setTranslating(null), 6000)
@@ -696,7 +708,8 @@ function AttributesPanel({ catId }: { catId: number }) {
                             {translating.running
                                 ? `جاري الترجمة... ${translating.done} / ${translating.total}`
                                 : `انتهى — تمت ترجمة ${translating.done} من ${translating.total}` +
-                                  (translating.failed > 0 ? ` (فشل ${translating.failed})` : '')}
+                                  (translating.failed > 0 ? ` (فشل ${translating.failed})` : '') +
+                                  (translating.skipped > 0 ? ` (تُخطّي ${translating.skipped})` : '')}
                         </span>
                         {!translating.running && (
                             <button onClick={() => setTranslating(null)}
@@ -708,11 +721,16 @@ function AttributesPanel({ catId }: { catId: number }) {
                     <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
                         <div style={{
                             height: '100%',
-                            width: `${translating.total > 0 ? Math.min(100, (translating.done + translating.failed) * 100 / translating.total) : 0}%`,
+                            width: `${translating.total > 0 ? Math.min(100, (translating.done + translating.failed + translating.skipped) * 100 / translating.total) : 0}%`,
                             background: translating.failed > 0 ? '#e07070' : '#4A90D9',
                             transition: 'width 0.3s',
                         }} />
                     </div>
+                    {translating.skipped > 0 && (
+                        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-text-secondary)' }}>
+                            تم تخطّي {translating.skipped} حقل لأنها رموز/اختصارات فقط (لا يمكن ترجمتها)
+                        </div>
+                    )}
                     {translating.lastError && (
                         <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-text-secondary)' }}>
                             آخر خطأ: {translating.lastError}

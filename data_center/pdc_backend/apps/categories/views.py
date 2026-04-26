@@ -791,6 +791,8 @@ class CategoryViewSet(viewsets.ModelViewSet):
         succeeded = 0
         succeeded_ids: list[int] = []
         failed = 0
+        skipped = 0
+        skipped_ids: list[int] = []
         errors: list[dict] = []
 
         ar_re = re.compile(_ARABIC_RX)
@@ -803,13 +805,24 @@ class CategoryViewSet(viewsets.ModelViewSet):
                 key = (sch.field_key or '').strip()
 
                 ar_has_arabic = bool(ar_re.search(ar))
-                en_is_code    = (not en) or _looks_like_code(en)
+                en_is_real    = bool(en) and not _looks_like_code(en)
+                en_is_code    = not en_is_real
+
+                # A schema is "code-only" when neither label carries any real
+                # natural-language content — only SAP-style identifiers like
+                # ``DECORTAKM1``, ``COMMERCIALCLASS`` or ``VIT_ITEMS``. There
+                # is no meaningful translation for these, so we skip them
+                # silently rather than logging a scary error each time.
+                if not ar_has_arabic and not en_is_real:
+                    skipped += 1
+                    skipped_ids.append(sch.id)
+                    continue
 
                 # Build a usable English source string. Prefer existing EN if
                 # it's already human-readable; otherwise humanize the EN code,
                 # the AR code, or fall back to the field key. NEVER fall back
                 # to Arabic text — `field_label_en` must end up in Latin.
-                if en and not _looks_like_code(en):
+                if en_is_real:
                     en_source = en
                 elif en:
                     en_source = _humanize_code(en)
@@ -826,17 +839,17 @@ class CategoryViewSet(viewsets.ModelViewSet):
                     translated, _ = translate_text_core(ar, 'ar', 'en')
                     translated = (translated or '').strip()
                     if not la_re.search(translated):
-                        raise TranslateError(
-                            f'No Latin letters in AR→EN result for "{ar}"',
-                            'لا يوجد محتوى قابل للترجمة (رمز/اختصار فقط)',
-                        )
+                        # Translation produced no Latin output → nothing
+                        # meaningful to save. Treat as a skip, not a failure.
+                        skipped += 1
+                        skipped_ids.append(sch.id)
+                        continue
                     en_source = translated
 
                 if not en_source:
-                    raise TranslateError(
-                        f'No source text for schema {sch.id}',
-                        'لا يوجد نص قابل للترجمة',
-                    )
+                    skipped += 1
+                    skipped_ids.append(sch.id)
+                    continue
 
                 updates: dict = {}
                 # Normalize field_label_en when it's empty or still a raw code
@@ -848,10 +861,14 @@ class CategoryViewSet(viewsets.ModelViewSet):
                     translated, _ = translate_text_core(en_source, 'en', 'ar')
                     translated = (translated or '').strip()
                     if not ar_re.search(translated):
-                        raise TranslateError(
-                            f'No Arabic letters in result for "{en_source}"',
-                            'لا يوجد محتوى قابل للترجمة (رمز/اختصار فقط)',
-                        )
+                        # No Arabic letters returned — likely the source is a
+                        # proper noun / code that the model could not localize.
+                        # Save any EN normalization we did, then skip.
+                        if updates:
+                            CategoryAttributeSchema.objects.filter(pk=sch.pk).update(**updates)
+                        skipped += 1
+                        skipped_ids.append(sch.id)
+                        continue
                     updates['field_label_ar'] = translated
 
                 if not updates:
@@ -877,12 +894,17 @@ class CategoryViewSet(viewsets.ModelViewSet):
                         'error': str(exc)[:200],
                     })
 
-        remaining = _untranslated_attrs_qs().exclude(id__in=exclude_ids).count()
+        # Permanently exclude code-only / unsalvageable schemas from the
+        # remaining count for this session so the loop terminates cleanly.
+        session_excludes = set(exclude_ids) | set(skipped_ids)
+        remaining = _untranslated_attrs_qs().exclude(id__in=session_excludes).count()
         return Response({
-            'processed': succeeded + failed,
+            'processed': succeeded + failed + skipped,
             'succeeded': succeeded,
             'succeeded_ids': succeeded_ids,
             'failed': failed,
+            'skipped': skipped,
+            'skipped_ids': skipped_ids,
             'remaining': remaining,
             'errors': errors,
         })
