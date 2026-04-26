@@ -114,6 +114,7 @@ export interface CategoryTreeNode {
     name_ar: string
     name_en: string
     level: number
+    parent_id: number | null
     sort_order: number
     is_active: boolean
     icon: string

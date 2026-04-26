@@ -116,6 +116,65 @@ function CategoryModal({
     const childLevel = parentNode ? parentNode.level + 1 : 1
     const levelInfo = LEVEL_COLORS[isEdit ? existing!.level : childLevel] ?? LEVEL_COLORS[1]
 
+    /* Parent picker (edit mode only): lets the user move a category under a
+       different parent. Reuses the cached tree query — no extra fetch. */
+    const [parentChoice, setParentChoice] = useState<number | null>(existing?.parent_id ?? null)
+    const treeQuery = useQuery<CategoryTreeNode[]>({
+        queryKey: ['categories-tree'],
+        queryFn: () => categoriesAPI.tree().then(r => r.data),
+        enabled: isEdit, // only fetch when editing — create/add-child don't need it
+    })
+    /* Build a flat option list (depth-prefixed) excluding the edited node + all its
+       descendants. If the edited node is not found in the cached tree (stale cache),
+       disable the picker entirely so the user can't pick an invalid target. */
+    const { parentOptions, pickerReady } = (() => {
+        const empty = { parentOptions: [] as { id: number; label: string; level: number }[], pickerReady: false }
+        if (!isEdit || !treeQuery.data) return empty
+        const findNode = (nodes: CategoryTreeNode[]): CategoryTreeNode | null => {
+            for (const n of nodes) {
+                if (n.id === existing!.id) return n
+                const f = findNode(n.children)
+                if (f) return f
+            }
+            return null
+        }
+        const self = findNode(treeQuery.data)
+        if (!self) return empty // cache is stale — refuse to render options
+
+        const excludeIds = new Set<number>([self.id])
+        const collectDescendants = (n: CategoryTreeNode) => {
+            for (const c of n.children) {
+                excludeIds.add(c.id)
+                collectDescendants(c)
+            }
+        }
+        collectDescendants(self)
+
+        // The deepest level the moved subtree will reach is (newParentLevel + 1 + selfSubtreeDepth).
+        // Disallow new parents that would push it past 5.
+        let subtreeDepth = 0
+        const measure = (nodes: CategoryTreeNode[], d: number) => {
+            if (nodes.length === 0) return
+            subtreeDepth = Math.max(subtreeDepth, d)
+            for (const c of nodes) measure(c.children, d + 1)
+        }
+        measure(self.children, 1)
+        const maxParentLevel = 5 - 1 - subtreeDepth
+
+        const out: { id: number; label: string; level: number }[] = []
+        const walk = (nodes: CategoryTreeNode[], depth: number) => {
+            for (const n of nodes) {
+                if (!excludeIds.has(n.id) && n.level <= maxParentLevel) {
+                    const indent = '— '.repeat(depth)
+                    out.push({ id: n.id, label: `${indent}${n.name_ar}`, level: n.level })
+                }
+                walk(n.children, depth + 1)
+            }
+        }
+        walk(treeQuery.data, 0)
+        return { parentOptions: out, pickerReady: true }
+    })()
+
     /* Auto-translate: scans BOTH name fields for actual Arabic/Latin characters
        (not just which field is non-empty), so that text typed in the wrong field
        is auto-corrected. Example: typing "الحجر الطبيعي" in the English field
@@ -185,11 +244,14 @@ function CategoryModal({
 
     const mutation = useMutation({
         mutationFn: () => {
-            // On edit, do NOT send `parent` — backend uses PATCH and would otherwise
-            // reset the existing parent to null (the modal has no parent picker).
-            // On create, parent comes from `parentNode` (or null for a root).
+            // On edit, send `parent` only if the user actually changed it via the picker.
+            // (Sending it unchanged is harmless but sending null when unchanged would re-root.)
             if (isEdit) {
-                return categoriesAPI.update(existing!.id, form)
+                const payload: Record<string, unknown> = { ...form }
+                if (parentChoice !== (existing!.parent_id ?? null)) {
+                    payload.parent = parentChoice
+                }
+                return categoriesAPI.update(existing!.id, payload)
             }
             const payload = { ...form, parent: parentNode?.id ?? null }
             return parentNode
@@ -264,6 +326,35 @@ function CategoryModal({
                             ? <><span className="spinner" style={{ width: 13, height: 13 }} /> جاري الترجمة...</>
                             : <><Languages size={14} /> ترجمة تلقائية (عربي ↔ إنجليزي)</>}
                     </button>
+
+                    {/* Parent picker — only when editing. Lets the user move a category
+                         under a different parent. Excludes self + descendants automatically. */}
+                    {isEdit && (
+                        <div>
+                            <label style={lStyle}>التصنيف الأب</label>
+                            <select
+                                style={iStyle}
+                                value={parentChoice ?? ''}
+                                onChange={e => setParentChoice(e.target.value === '' ? null : Number(e.target.value))}
+                                disabled={treeQuery.isLoading || !pickerReady}
+                            >
+                                <option value="">— تصنيف رئيسي (بدون أب) —</option>
+                                {parentOptions.map(o => (
+                                    <option key={o.id} value={o.id}>{o.label}</option>
+                                ))}
+                            </select>
+                            {!treeQuery.isLoading && !pickerReady && (
+                                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 4, display: 'block' }}>
+                                    تعذّر تحميل شجرة التصنيفات الآن — لا يمكن تغيير الأب في هذه الجلسة.
+                                </span>
+                            )}
+                            {pickerReady && parentChoice !== (existing!.parent_id ?? null) && (
+                                <span style={{ fontSize: 11, color: '#C8A84B', marginTop: 4, display: 'block' }}>
+                                    سيتم نقل التصنيف وجميع تصنيفاته الفرعية للأب الجديد عند الحفظ.
+                                </span>
+                            )}
+                        </div>
+                    )}
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                         <div>
@@ -874,9 +965,17 @@ export default function CategoriesPage() {
                 </div>
             </div>
 
-            {/* Modal */}
+            {/* Modal — `key` forces a fresh instance whenever the target category
+                 changes, so internal form state never leaks between two edits. */}
             {modal && (
                 <CategoryModal
+                    key={
+                        modal.mode === 'edit'
+                            ? `edit-${modal.node!.id}`
+                            : modal.mode === 'add-child'
+                                ? `add-child-${modal.parent!.id}`
+                                : 'create-root'
+                    }
                     existing={modal.mode === 'edit' ? modal.node : undefined}
                     parentNode={modal.mode === 'add-child' ? modal.parent : undefined}
                     onClose={() => setModal(null)}

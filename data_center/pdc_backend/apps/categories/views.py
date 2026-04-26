@@ -109,12 +109,12 @@ class CategoryViewSet(viewsets.ModelViewSet):
         for c in cats:
             c['attribute_count'] = attr_counts.get(root_id(c['id']), 0)
 
-        # Pass 2: attach children + counts, then strip parent_id
+        # Pass 2: attach children + counts. Keep parent_id so the edit dialog
+        # can show the current parent and allow moving categories.
         for c in cats:
             kids = children_map.get(c['id'], [])
             c['children'] = kids
             c['children_count'] = len(kids)
-            del c['parent_id']  # not part of the tree response shape
 
         return Response(children_map.get(None, []))
 
