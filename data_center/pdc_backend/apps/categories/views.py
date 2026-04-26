@@ -159,12 +159,9 @@ class CategoryViewSet(viewsets.ModelViewSet):
         ).select_related('parent').order_by('sort_order', 'order', 'name_ar')
 
         user = self.request.user
-        if (
-            user.is_authenticated
-            and getattr(user, 'role', None) == 'مدير_قسم'
-            and getattr(user, 'department_id', None)
-        ):
-            qs = qs.filter(pk=user.department_id)
+        if user.is_authenticated and getattr(user, 'role', None) == 'مدير_قسم':
+            managed = user.get_managed_category_ids()
+            qs = qs.filter(pk__in=managed) if managed else qs.none()
         return qs
 
     def get_serializer_class(self):

@@ -14,14 +14,22 @@ import { useAuthStore } from '@/store/authStore'
 import { toast } from 'react-toastify'
 
 /* ── Types ── */
+interface DepartmentInfo { id: number; name_ar: string; name_en: string; level: number; path_ar: string }
 interface ManagedUser {
     id: number; email: string; name_ar: string; name_en: string
     role: string; role_display: string; department: number | null
-    department_name: string | null; is_active: boolean; avatar: string
+    department_name: string | null
+    departments: number[]
+    departments_info: DepartmentInfo[]
+    is_active: boolean; avatar: string
     date_joined: string; last_login: string | null
     permissions: { can_add_product: boolean; can_publish_product: boolean; can_generate_catalog: boolean; can_view_reports: boolean; can_manage_users: boolean }
 }
-interface Category { id: number; name_ar: string; slug: string }
+interface FlatCategory {
+    id: number; code: string; name_ar: string; name_en: string; level: number
+    parent: number | null; path_ar: string; path_en: string
+    has_children: boolean; is_active: boolean
+}
 
 /* ── Constants ── */
 const ROLES = [
@@ -47,10 +55,205 @@ const iStyle: React.CSSProperties = {
 }
 
 /* ══════════════════════════════════════
+   Categories multi-select picker (with level filter + breadcrumb search)
+══════════════════════════════════════ */
+function CategoryMultiPicker({
+    allCategories, value, onChange, hasError,
+}: {
+    allCategories: FlatCategory[]
+    value: number[]
+    onChange: (next: number[]) => void
+    hasError?: boolean
+}) {
+    const [search, setSearch] = useState('')
+    const [activeLevels, setActiveLevels] = useState<Set<number>>(new Set())
+    const [open, setOpen] = useState(false)
+
+    const levels = Array.from(new Set(allCategories.map(c => c.level))).sort((a, b) => a - b)
+    const valueSet = new Set(value)
+
+    // Filter pool
+    const filtered = allCategories.filter(c => {
+        if (!c.is_active) return false
+        if (activeLevels.size > 0 && !activeLevels.has(c.level)) return false
+        if (search.trim()) {
+            const q = search.trim().toLowerCase()
+            return (
+                c.name_ar.toLowerCase().includes(q) ||
+                c.name_en.toLowerCase().includes(q) ||
+                c.path_ar.toLowerCase().includes(q) ||
+                c.code.toLowerCase().includes(q)
+            )
+        }
+        return true
+    }).slice(0, 200) // cap rendering for perf
+
+    const selected = value
+        .map(id => allCategories.find(c => c.id === id))
+        .filter((c): c is FlatCategory => !!c)
+
+    const toggle = (id: number) => {
+        if (valueSet.has(id)) onChange(value.filter(v => v !== id))
+        else onChange([...value, id])
+    }
+    const toggleLevel = (lvl: number) => {
+        const next = new Set(activeLevels)
+        if (next.has(lvl)) next.delete(lvl); else next.add(lvl)
+        setActiveLevels(next)
+    }
+
+    const errColor = '#E74C3C'
+
+    return (
+        <div>
+            {/* Selected chips */}
+            <div style={{
+                minHeight: 44, padding: 6, display: 'flex', flexWrap: 'wrap', gap: 6,
+                background: 'var(--color-surface-raised)',
+                border: `1px solid ${hasError ? errColor : 'var(--color-border-strong)'}`,
+                borderRadius: 9, marginBottom: 8,
+            }}>
+                {selected.length === 0 && (
+                    <span style={{ alignSelf: 'center', padding: '0 6px', color: 'var(--color-text-muted)', fontSize: 12 }}>
+                        لم يتم اختيار أي قسم
+                    </span>
+                )}
+                {selected.map(c => (
+                    <span key={c.id} style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        padding: '3px 8px', borderRadius: 6, fontSize: 11,
+                        background: 'rgba(200,168,75,0.13)', color: 'var(--color-gold)',
+                        border: '1px solid rgba(200,168,75,0.3)', maxWidth: '100%',
+                    }} title={c.path_ar}>
+                        <span style={{
+                            fontSize: 9, padding: '0 4px', borderRadius: 3,
+                            background: 'rgba(0,0,0,0.25)', color: 'inherit',
+                        }}>L{c.level}</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name_ar}</span>
+                        <button type="button" onClick={() => toggle(c.id)}
+                            style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', display: 'flex', padding: 0 }}>
+                            <X size={11} />
+                        </button>
+                    </span>
+                ))}
+            </div>
+
+            {/* Toggle picker */}
+            <button type="button" onClick={() => setOpen(o => !o)}
+                style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    background: 'var(--color-surface-raised)',
+                    border: '1px solid var(--color-border-strong)',
+                    color: 'var(--color-text-secondary)', cursor: 'pointer',
+                    fontFamily: 'inherit', fontSize: 12, textAlign: 'right',
+                }}>
+                {open ? 'إخفاء قائمة الأقسام ▲' : 'إضافة / إزالة أقسام ▼'}
+            </button>
+
+            {open && (
+                <div style={{
+                    marginTop: 8, padding: 10, borderRadius: 9,
+                    background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border)',
+                }}>
+                    {/* Level filter chips */}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                        <span style={{ fontSize: 11, color: 'var(--color-text-muted)', alignSelf: 'center', marginLeft: 4 }}>المستوى:</span>
+                        {levels.map(lvl => {
+                            const active = activeLevels.has(lvl)
+                            return (
+                                <button key={lvl} type="button" onClick={() => toggleLevel(lvl)}
+                                    style={{
+                                        padding: '3px 10px', borderRadius: 12, fontSize: 11,
+                                        cursor: 'pointer', fontFamily: 'inherit',
+                                        border: `1px solid ${active ? 'var(--color-gold)' : 'var(--color-border-strong)'}`,
+                                        background: active ? 'rgba(200,168,75,0.15)' : 'transparent',
+                                        color: active ? 'var(--color-gold)' : 'var(--color-text-secondary)',
+                                    }}>
+                                    L{lvl}
+                                </button>
+                            )
+                        })}
+                        {activeLevels.size > 0 && (
+                            <button type="button" onClick={() => setActiveLevels(new Set())}
+                                style={{
+                                    padding: '3px 10px', borderRadius: 12, fontSize: 11,
+                                    cursor: 'pointer', fontFamily: 'inherit',
+                                    border: '1px solid rgba(224,112,112,0.4)', background: 'rgba(224,112,112,0.06)', color: '#c0392b',
+                                }}>
+                                مسح
+                            </button>
+                        )}
+                    </div>
+                    {/* Search */}
+                    <div style={{ position: 'relative', marginBottom: 8 }}>
+                        <Search size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-warm-gray)', pointerEvents: 'none' }} />
+                        <input
+                            value={search} onChange={e => setSearch(e.target.value)}
+                            placeholder="ابحث في الأقسام..."
+                            style={{
+                                width: '100%', padding: '8px 30px 8px 10px', fontSize: 12, fontFamily: 'inherit',
+                                color: 'var(--color-text-primary)', background: 'var(--color-surface-raised)',
+                                border: '1px solid var(--color-border-strong)', borderRadius: 8, outline: 'none', boxSizing: 'border-box',
+                            }}
+                        />
+                    </div>
+                    {/* List */}
+                    <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid var(--color-border)', borderRadius: 7 }}>
+                        {filtered.length === 0 ? (
+                            <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--color-text-muted)' }}>
+                                لا توجد نتائج
+                            </div>
+                        ) : filtered.map(c => {
+                            const active = valueSet.has(c.id)
+                            return (
+                                <button key={c.id} type="button" onClick={() => toggle(c.id)}
+                                    style={{
+                                        width: '100%', padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 9, textAlign: 'right',
+                                        background: active ? 'rgba(200,168,75,0.10)' : 'transparent',
+                                        border: 'none', borderBottom: '1px solid var(--color-border)', cursor: 'pointer', fontFamily: 'inherit',
+                                    }}>
+                                    <span style={{
+                                        width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+                                        border: `1.5px solid ${active ? 'var(--color-gold)' : 'var(--color-border-strong)'}`,
+                                        background: active ? 'var(--color-gold)' : 'transparent',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        color: '#1a1a1a', fontSize: 11, fontWeight: 700,
+                                    }}>{active && '✓'}</span>
+                                    <span style={{
+                                        fontSize: 9, padding: '1px 5px', borderRadius: 3,
+                                        background: 'var(--color-surface-raised)', color: 'var(--color-text-muted)',
+                                        border: '1px solid var(--color-border)', flexShrink: 0,
+                                    }}>L{c.level}</span>
+                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                        <div style={{ fontSize: 12, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {c.name_ar}
+                                        </div>
+                                        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {c.path_ar}
+                                        </div>
+                                    </div>
+                                </button>
+                            )
+                        })}
+                        {filtered.length === 200 && (
+                            <div style={{ padding: 8, textAlign: 'center', fontSize: 10, color: 'var(--color-text-muted)' }}>
+                                يتم عرض أول ٢٠٠ نتيجة — استخدم البحث أو الفلتر للتضييق
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
+
+/* ══════════════════════════════════════
    User Form Modal (Create / Edit)
 ══════════════════════════════════════ */
-function UserFormModal({ existing, categories, onClose }: {
-    existing?: ManagedUser; categories: Category[]; onClose: () => void
+function UserFormModal({ existing, allCategories, onClose }: {
+    existing?: ManagedUser; allCategories: FlatCategory[]; onClose: () => void
 }) {
     const isEdit = !!existing
     const qc = useQueryClient()
@@ -60,7 +263,7 @@ function UserFormModal({ existing, categories, onClose }: {
         name_en: existing?.name_en ?? '',
         email: existing?.email ?? '',
         role: existing?.role ?? 'عام',
-        department: existing?.department ?? null as number | null,
+        departments: (existing?.departments ?? []) as number[],
         is_active: existing?.is_active ?? true,
         password: '',
     })
@@ -73,7 +276,7 @@ function UserFormModal({ existing, categories, onClose }: {
         if (!form.name_ar.trim()) e.name_ar = 'الاسم بالعربية مطلوب'
         if (!form.email.trim()) e.email = 'البريد الإلكتروني مطلوب'
         if (!isEdit && form.password.length < 8) e.password = 'كلمة المرور 8 أحرف على الأقل'
-        if (form.role === 'مدير_قسم' && !form.department) e.department = 'القسم مطلوب لمدير القسم'
+        if (form.role === 'مدير_قسم' && form.departments.length === 0) e.departments = 'يجب اختيار قسم واحد على الأقل لمدير القسم'
         setErrors(e)
         return Object.keys(e).length === 0
     }
@@ -82,7 +285,8 @@ function UserFormModal({ existing, categories, onClose }: {
         mutationFn: () => {
             const payload: Record<string, unknown> = {
                 name_ar: form.name_ar, name_en: form.name_en, email: form.email,
-                role: form.role, department: form.role === 'مدير_قسم' ? form.department : null,
+                role: form.role,
+                departments: form.role === 'مدير_قسم' ? form.departments : [],
                 is_active: form.is_active,
             }
             if (!isEdit) payload.password = form.password
@@ -214,16 +418,17 @@ function UserFormModal({ existing, categories, onClose }: {
                         </div>
                     </div>
 
-                    {/* Department — only for مدير_قسم */}
+                    {/* Departments — only for مدير_قسم. Multi-select with level filter. */}
                     {form.role === 'مدير_قسم' && (
                         <div>
-                            <label style={lStyle}>القسم / الفئة *</label>
-                            <select style={{ ...iStyle, borderColor: fieldErr('department') ? errColor : 'var(--color-border-strong)' }}
-                                value={form.department ?? ''} onChange={e => set('department', e.target.value ? Number(e.target.value) : null)}>
-                                <option value="" style={{ background: 'var(--color-surface)' }}>اختر قسماً...</option>
-                                {categories.map(c => <option key={c.id} value={c.id} style={{ background: 'var(--color-surface)' }}>{c.name_ar}</option>)}
-                            </select>
-                            {fieldErr('department')}
+                            <label style={lStyle}>الأقسام / الفئات * <span style={{ fontWeight: 400, color: 'var(--color-text-muted)', fontSize: 11 }}>(يمكن اختيار أكثر من قسم وعلى أي مستوى)</span></label>
+                            <CategoryMultiPicker
+                                allCategories={allCategories}
+                                value={form.departments}
+                                onChange={next => set('departments', next)}
+                                hasError={!!fieldErr('departments')}
+                            />
+                            {fieldErr('departments')}
                         </div>
                     )}
 
@@ -296,11 +501,11 @@ export default function UserManagementPage() {
     const totalPages = Math.ceil(totalCount / 20)
 
     const { data: catsData } = useQuery({
-        queryKey: ['categories'],
-        queryFn: () => categoriesAPI.list().then(r => r.data),
+        queryKey: ['categories-flat'],
+        queryFn: () => categoriesAPI.flat().then(r => r.data),
         staleTime: 5 * 60 * 1000,
     })
-    const categories: Category[] = Array.isArray(catsData) ? catsData : (catsData?.results ?? [])
+    const allCategories: FlatCategory[] = Array.isArray(catsData) ? catsData : (catsData?.results ?? [])
 
     const toggleActiveMutation = useMutation({
         mutationFn: ({ id, is_active }: { id: number; is_active: boolean }) =>
@@ -408,7 +613,28 @@ export default function UserManagementPage() {
                                                 {user.role_display}
                                             </span>
                                         </td>
-                                        <td style={{ fontSize: 12, color: 'var(--color-warm-gray)' }}>{user.department_name ?? '—'}</td>
+                                        <td style={{ fontSize: 12, color: 'var(--color-warm-gray)', maxWidth: 280 }}>
+                                            {user.departments_info && user.departments_info.length > 0 ? (
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                                    {user.departments_info.slice(0, 3).map(d => (
+                                                        <span key={d.id} title={d.path_ar}
+                                                            style={{
+                                                                fontSize: 10, padding: '1px 6px', borderRadius: 4,
+                                                                background: 'rgba(200,168,75,0.13)', color: 'var(--color-gold)',
+                                                                border: '1px solid rgba(200,168,75,0.25)',
+                                                            }}>
+                                                            <span style={{ opacity: 0.7, marginLeft: 3 }}>L{d.level}</span>
+                                                            {d.name_ar}
+                                                        </span>
+                                                    ))}
+                                                    {user.departments_info.length > 3 && (
+                                                        <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
+                                                            +{user.departments_info.length - 3}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : (user.department_name ?? '—')}
+                                        </td>
                                         <td>
                                             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                                                 {user.permissions.can_add_product && <span style={{ fontSize: 10, background: '#DBEAFE', color: '#1D4ED8', padding: '1px 6px', borderRadius: 4 }}>إضافة منتج</span>}
@@ -465,8 +691,8 @@ export default function UserManagementPage() {
             )}
 
             {/* Modals */}
-            {showCreate && <UserFormModal categories={categories} onClose={() => setShowCreate(false)} />}
-            {editingUser && <UserFormModal existing={editingUser} categories={categories} onClose={() => setEditingUser(null)} />}
+            {showCreate && <UserFormModal allCategories={allCategories} onClose={() => setShowCreate(false)} />}
+            {editingUser && <UserFormModal existing={editingUser} allCategories={allCategories} onClose={() => setEditingUser(null)} />}
         </div>
     )
 }

@@ -46,12 +46,10 @@ class ProductPermissions(BasePermission):
         if request.user.is_super_admin:
             return True
 
-        # Dept manager: only own category
+        # Dept manager: only categories within their assigned subtree(s)
         if request.user.is_dept_manager:
-            return (
-                request.user.department_id is not None
-                and obj.category_id == request.user.department_id
-            )
+            managed = request.user.get_managed_category_ids()
+            return bool(managed) and obj.category_id in managed
 
         # publish action: super admin only
         if view.action == 'publish':

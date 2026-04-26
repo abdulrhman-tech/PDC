@@ -115,9 +115,11 @@ class ProductViewSet(viewsets.ModelViewSet):
             'subcategory', 'brand', 'created_by', 'updated_by'
         ).prefetch_related('images')
 
-        # مدير قسم: only sees his own category
-        if user.is_authenticated and user.is_dept_manager and user.department_id:
-            qs = qs.filter(category=user.department)
+        # مدير قسم: only sees products inside any of his assigned categories
+        # (and their descendant subtrees).
+        if user.is_authenticated and user.is_dept_manager:
+            managed = user.get_managed_category_ids()
+            qs = qs.filter(category_id__in=managed) if managed else qs.none()
 
         return qs
 
@@ -977,8 +979,9 @@ class ProductSubmissionViewSet(viewsets.ModelViewSet):
             return ProductSubmission.objects.none()
         if user.is_super_admin:
             return qs.all()
-        if user.is_dept_manager and user.department:
-            return qs.filter(category=user.department)
+        if user.is_dept_manager:
+            managed = user.get_managed_category_ids()
+            return qs.filter(category_id__in=managed) if managed else qs.none()
         return qs.filter(assigned_manager=user)
 
     def get_permissions(self):

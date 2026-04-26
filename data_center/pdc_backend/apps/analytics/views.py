@@ -78,16 +78,29 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
 
         # ── Detect dept manager restriction ──
         is_dept_manager = (user.role == 'مدير_قسم')
-        dept_category_id = user.department_id if is_dept_manager else None
+        managed_ids = user.get_managed_category_ids() if is_dept_manager else set()
 
-        # ── Read filters (dept manager is locked to their category) ──
-        category_id    = dept_category_id if is_dept_manager else request.query_params.get('category_id')
+        # ── Read filters ──
+        # Dept managers may still narrow within their assigned scope, but any
+        # explicit category_id they pass is intersected with their allowed set.
+        requested_cat = request.query_params.get('category_id')
+        if is_dept_manager:
+            if requested_cat and int(requested_cat) in managed_ids:
+                category_id = requested_cat
+            else:
+                category_id = None  # use full managed scope
+        else:
+            category_id = requested_cat
+
         brand_id       = request.query_params.get('brand_id')
         score_range    = request.query_params.get('score_range')    # low/medium/high/perfect
         inventory_type = request.query_params.get('inventory_type') # دوري / ستوك
 
         # ── Base queryset: active products only ──
         qs = Product.objects.filter(status='نشط').select_related('category', 'brand')
+
+        if is_dept_manager:
+            qs = qs.filter(category_id__in=managed_ids) if managed_ids else qs.none()
 
         if category_id:
             qs = qs.filter(category_id=category_id)
@@ -99,7 +112,9 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
         # ── Filter options (scoped by dept for managers) ──
         # Compute from products scoped to dept (but without brand/inv filters applied)
         if is_dept_manager:
-            all_active = Product.objects.filter(status='نشط', category_id=dept_category_id).select_related('category', 'brand')
+            all_active = Product.objects.filter(
+                status='نشط', category_id__in=managed_ids
+            ).select_related('category', 'brand') if managed_ids else Product.objects.none()
         else:
             all_active = Product.objects.filter(status='نشط').select_related('category', 'brand')
 
@@ -257,7 +272,13 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
         worst_products = sorted_by_score[:15]
         top_products = sorted_by_score[-10:][::-1]
 
-        dept_name = user.department.name_ar if is_dept_manager and user.department else None
+        if is_dept_manager:
+            dept_names = list(user.departments.values_list('name_ar', flat=True))
+            if not dept_names and user.department_id:
+                dept_names = [user.department.name_ar]
+            dept_name = ' / '.join(dept_names) if dept_names else None
+        else:
+            dept_name = None
 
         return Response({
             'total_products': total,
