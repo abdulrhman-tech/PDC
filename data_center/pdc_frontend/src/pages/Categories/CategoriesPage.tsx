@@ -823,16 +823,25 @@ export default function CategoriesPage() {
         return count(tree)
     }, [tree])
 
-    /* Count categories missing one of the two name fields — drives the
-       "ترجمة الكل" button visibility and label. Computed from the cached
-       tree so we don't need an extra round-trip. */
+    /* Count categories that effectively need a translation — drives the
+       "ترجمة الكل" button visibility and label. A row is "untranslated"
+       when one of name_ar / name_en is empty OR doesn't actually contain
+       letters of the expected script (e.g. an SAP code like "AG8200100"
+       sitting in name_ar is NOT a real Arabic translation). To translate
+       we also need a usable source on the other side, so each branch
+       requires the *other* field to contain the right script. Must stay
+       in sync with backend `_untranslated_qs()`. */
     const untranslatedCount = useMemo(() => {
+        const ARABIC_RX = /[\u0600-\u06FF]/
+        const LATIN_RX  = /[A-Za-z]/
         const count = (nodes: CategoryTreeNode[]): number => {
             let n = 0
             for (const node of nodes) {
                 const ar = (node.name_ar ?? '').trim()
                 const en = (node.name_en ?? '').trim()
-                if ((!ar && en) || (!en && ar)) n++
+                const arOk = ar !== '' && ARABIC_RX.test(ar)
+                const enOk = en !== '' && LATIN_RX.test(en)
+                if ((!arOk && enOk) || (!enOk && arOk)) n++
                 n += count(node.children)
             }
             return n

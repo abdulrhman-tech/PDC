@@ -12,6 +12,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 import io
 import logging
+import re
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from apps.categories.models import Category, SubCategory, CategoryAttributeSchema
@@ -25,12 +26,35 @@ from apps.integrations.translate_views import translate_text_core, TranslateErro
 logger = logging.getLogger(__name__)
 
 
+# Regex character classes used to detect actual language content.
+# Arabic Unicode block U+0600-U+06FF covers the letters we care about;
+# we rely on PostgreSQL's POSIX regex via Django's __regex lookup.
+_ARABIC_RX = r'[\u0600-\u06FF]'
+_LATIN_RX  = r'[A-Za-z]'
+
+
 def _untranslated_qs():
-    """Categories that are missing one of the two name fields."""
-    return Category.objects.filter(
-        (Q(name_en='') & ~Q(name_ar='')) |
-        (Q(name_ar='') & ~Q(name_en=''))
+    """
+    Categories where one of the two language fields is effectively missing.
+
+    "Effectively missing" means either truly empty OR filled with content
+    that doesn't contain a single letter of the expected script — e.g.
+    SAP codes like ``AG8200100`` stuffed into ``name_ar`` are NOT a real
+    Arabic translation, so the row still needs translating.
+
+    To translate, we also need a usable source on the other side, so each
+    branch requires the *other* field to contain valid letters of its
+    own script.
+    """
+    needs_ar = (
+        (Q(name_ar='') | ~Q(name_ar__regex=_ARABIC_RX))
+        & Q(name_en__regex=_LATIN_RX)
     )
+    needs_en = (
+        (Q(name_en='') | ~Q(name_en__regex=_LATIN_RX))
+        & Q(name_ar__regex=_ARABIC_RX)
+    )
+    return Category.objects.filter(needs_ar | needs_en)
 
 
 class IsSuperAdminOrReadOnly(permissions.BasePermission):
@@ -559,20 +583,31 @@ class CategoryViewSet(viewsets.ModelViewSet):
         errors: list[dict] = []
         now = timezone.now()
 
+        # Same heuristic as `_untranslated_qs()`, applied per-row so a
+        # category whose name_ar contains only an SAP code (no Arabic
+        # letters) is treated as needing translation, not skipped.
+        ar_re = re.compile(_ARABIC_RX)
+        la_re = re.compile(_LATIN_RX)
+
         for cat in qs:
             try:
-                if not cat.name_en and cat.name_ar:
-                    translated, _ = translate_text_core(cat.name_ar, 'ar', 'en')
-                    Category.objects.filter(pk=cat.pk).update(
-                        name_en=translated.strip(), updated_at=now,
-                    )
-                elif not cat.name_ar and cat.name_en:
-                    translated, _ = translate_text_core(cat.name_en, 'en', 'ar')
+                ar = cat.name_ar or ''
+                en = cat.name_en or ''
+                ar_ok = bool(ar_re.search(ar))
+                en_ok = bool(la_re.search(en))
+
+                if not ar_ok and en_ok:
+                    translated, _ = translate_text_core(en, 'en', 'ar')
                     Category.objects.filter(pk=cat.pk).update(
                         name_ar=translated.strip(), updated_at=now,
                     )
+                elif not en_ok and ar_ok:
+                    translated, _ = translate_text_core(ar, 'ar', 'en')
+                    Category.objects.filter(pk=cat.pk).update(
+                        name_en=translated.strip(), updated_at=now,
+                    )
                 else:
-                    continue  # nothing to do (race with another writer)
+                    continue  # both sides valid (race with another writer)
                 succeeded += 1
                 succeeded_ids.append(cat.id)
             except TranslateError as exc:
