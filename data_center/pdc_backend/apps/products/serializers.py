@@ -87,20 +87,32 @@ class ProductDetailSerializer(serializers.ModelSerializer):
         return obj.completeness_score()
 
     def get_attribute_schema(self, obj):
-        # Walk up the category tree until we find schemas.
-        # Attribute schemas are typically defined on the L1 root category,
-        # so a product in a child category (L2+) needs this traversal.
+        # Schemas are conventionally defined on the L1 root category and
+        # inherited by all descendants (see CategoryViewSet.attributes), but
+        # nothing prevents intermediate-level categories from also having their
+        # own schema rows. To handle both cases correctly we walk the FULL
+        # ancestor chain (from leaf to root), collect every schema, and dedupe
+        # by field_key so the most specific (deepest) definition wins for any
+        # key shared between levels. This fixes the bug where stopping at the
+        # first ancestor with any schemas hides the root's full schema set when
+        # a sub-category happens to have a small set of unrelated extras.
         category = obj.category
-        visited = set()
-        schemas = []
-        while category and category.id not in visited:
+        visited: set[int] = set()
+        chain = []  # leaf → root
+        while category is not None and category.id not in visited:
             visited.add(category.id)
-            schemas = list(
-                CategoryAttributeSchema.objects.filter(category=category).order_by('order')
-            )
-            if schemas:
-                break
+            chain.append(category)
             category = category.parent
+        if not chain:
+            return []
+
+        # Iterate root → leaf so deeper definitions overwrite root entries
+        # for shared keys, while preserving root's ordering for keys that
+        # are not redefined deeper.
+        by_key: dict[str, CategoryAttributeSchema] = {}
+        for cat in reversed(chain):
+            for s in CategoryAttributeSchema.objects.filter(category=cat).order_by('order'):
+                by_key[s.field_key] = s
 
         return [
             {
@@ -115,7 +127,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
                 'unit_en': s.unit_en,
                 'help_text': s.help_text_ar,
             }
-            for s in schemas
+            for s in by_key.values()
         ]
 
 
