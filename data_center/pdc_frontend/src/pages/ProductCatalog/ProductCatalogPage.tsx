@@ -6,7 +6,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Search, LogIn, LayoutGrid, SlidersHorizontal, X, ChevronDown, Sun, Moon, BookOpen } from 'lucide-react'
+import { Search, LogIn, LayoutGrid, SlidersHorizontal, X, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, BookOpen } from 'lucide-react'
 import { productsAPI, categoriesAPI, brandsAPI } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { useThemeStore } from '@/store/themeStore'
@@ -14,6 +14,37 @@ import LanguageToggle from '@/components/LanguageToggle/LanguageToggle'
 import { pickBilingual } from '@/i18n/bilingual'
 import { resetOnboarding } from '@/components/onboarding/OnboardingFlow'
 import type { Product, CategoryFlat, Brand, ProductFilters } from '@/types'
+
+/* ─── Detect the browser's RTL scrollLeft model once.
+ *  - 'negative' : modern Chrome/Firefox/Safari/Edge → scrollLeft in [-max, 0]
+ *  - 'reverse'  : legacy Chrome ≤84 → scrollLeft in [0, max], 0 = start (visual right)
+ *  - 'default'  : legacy WebKit → scrollLeft in [0, max], max = start (visual right)
+ *  Using the canonical probe technique (see WICG/csswg-drafts#5278). ─── */
+let _rtlScrollType: 'negative' | 'reverse' | 'default' | null = null
+function detectRTLScrollType(): 'negative' | 'reverse' | 'default' {
+    if (_rtlScrollType !== null) return _rtlScrollType
+    if (typeof document === 'undefined' || !document.body) return 'negative'
+    const probe = document.createElement('div')
+    probe.dir = 'rtl'
+    probe.style.cssText =
+        'font-size:14px;width:1px;height:1px;position:absolute;' +
+        'top:-9999px;left:-9999px;visibility:hidden;pointer-events:none;overflow:scroll'
+    probe.appendChild(document.createTextNode('ABCD'))
+    let type: 'negative' | 'reverse' | 'default' = 'negative'
+    try {
+        document.body.appendChild(probe)
+        if (probe.scrollLeft > 0) {
+            type = 'default'
+        } else {
+            probe.scrollLeft = 1
+            type = probe.scrollLeft === 0 ? 'negative' : 'reverse'
+        }
+    } finally {
+        if (probe.parentNode) probe.parentNode.removeChild(probe)
+    }
+    _rtlScrollType = type
+    return type
+}
 
 /* ─── Variable aspect ratios for masonry variety ─── */
 const RATIOS = ['140%', '100%', '120%', '85%', '155%', '95%', '130%', '110%', '75%', '145%', '105%', '90%']
@@ -218,8 +249,83 @@ export default function ProductCatalogPage() {
     })
 
     const allCats: CategoryFlat[] = Array.isArray(categoriesData) ? categoriesData : (categoriesData?.results ?? [])
-    const categories: CategoryFlat[] = allCats.filter((c: CategoryFlat) => c.level === 1)
+    const categories: CategoryFlat[] = allCats
+        .filter((c: CategoryFlat) => c.level === 1 && c.is_active !== false)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name_ar.localeCompare(b.name_ar, 'ar'))
     const childrenOf = (parentId: number): CategoryFlat[] => allCats.filter((c: CategoryFlat) => c.parent === parentId)
+
+    /* ── Category-tabs horizontal scroll: track overflow so we can show arrows ── */
+    const tabsScrollRef = useRef<HTMLDivElement>(null)
+    const [tabsScroll, setTabsScroll] = useState({ canStart: false, canEnd: false, isRTL: true })
+
+    /** Normalize scrollLeft into a positive "distance from logical start" (0..max),
+     *  using the detected RTL scroll model so behavior is identical across browsers. */
+    const getNormalizedScroll = (el: HTMLElement) => {
+        const max = Math.max(0, el.scrollWidth - el.clientWidth)
+        const isRTL = getComputedStyle(el).direction === 'rtl'
+        let pos = el.scrollLeft
+        if (isRTL) {
+            const model = detectRTLScrollType()
+            if (model === 'negative')      pos = -pos              // [-max,0] → [0,max]
+            else if (model === 'default')  pos = max - pos         // [0,max], 0=end
+            // 'reverse' is already [0,max] with 0=start → use pos as-is
+        }
+        pos = Math.min(max, Math.max(0, pos)) // clamp sub-pixel drift
+        return { pos, max, isRTL }
+    }
+
+    const updateTabsScroll = useCallback(() => {
+        const el = tabsScrollRef.current
+        if (!el) return
+        const { pos, max, isRTL } = getNormalizedScroll(el)
+        setTabsScroll({
+            canStart: pos > 4,
+            canEnd: max > 4 && pos < max - 4,
+            isRTL,
+        })
+    }, [])
+
+    useEffect(() => {
+        updateTabsScroll()
+        const el = tabsScrollRef.current
+        if (!el) return
+        el.addEventListener('scroll', updateTabsScroll, { passive: true })
+        window.addEventListener('resize', updateTabsScroll)
+        // ResizeObserver catches language/font changes that alter content width
+        // without firing window.resize.
+        let ro: ResizeObserver | null = null
+        if (typeof ResizeObserver !== 'undefined') {
+            ro = new ResizeObserver(updateTabsScroll)
+            ro.observe(el)
+            // Also observe a child to catch content-width changes
+            if (el.firstElementChild) ro.observe(el.firstElementChild as Element)
+        }
+        return () => {
+            el.removeEventListener('scroll', updateTabsScroll)
+            window.removeEventListener('resize', updateTabsScroll)
+            ro?.disconnect()
+        }
+    }, [updateTabsScroll, categories.length, i18n.language])
+
+    const scrollTabs = (dir: 'forward' | 'backward') => {
+        const el = tabsScrollRef.current
+        if (!el) return
+        const step = Math.max(200, el.clientWidth * 0.7)
+        // 'forward' = move toward logical end of list. The sign of scrollBy(left)
+        // needed to reach the logical end depends on the scroll model:
+        //   LTR              : end is at +max scrollLeft → forward = +step
+        //   RTL-reverse      : end is at +max scrollLeft → forward = +step
+        //   RTL-negative     : end is at -max scrollLeft → forward = -step
+        //   RTL-default      : end is at  0   scrollLeft (start at +max) → forward = -step
+        const isRTL = getComputedStyle(el).direction === 'rtl'
+        let forwardSign = 1
+        if (isRTL) {
+            const model = detectRTLScrollType()
+            if (model === 'negative' || model === 'default') forwardSign = -1
+        }
+        const sign = dir === 'forward' ? forwardSign : -forwardSign
+        el.scrollBy({ left: sign * step, behavior: 'smooth' })
+    }
     const brands: Brand[] = brandsData?.results ?? []
     const products: Product[] = infiniteData?.pages?.flatMap((p: any) => p.results ?? []) ?? []
     const totalCount = (infiniteData?.pages?.[0] as any)?.count ?? 0
@@ -479,9 +585,55 @@ export default function ProductCatalogPage() {
                 alignItems: 'center',
                 gap: 4,
             }}>
-                {/* Tabs scroll area */}
-                <div style={{
-                    flex: 1,
+                {/* Tabs scroll area + overflow arrows */}
+                <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+                {tabsScroll.canStart && (
+                    <button
+                        type="button"
+                        onClick={() => scrollTabs('backward')}
+                        aria-label={t('catalog.scroll_back', 'الرجوع للتصنيفات السابقة')}
+                        style={{
+                            position: 'absolute',
+                            top: 0, bottom: 0,
+                            insetInlineStart: 0,
+                            width: 32,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            // Solid bg sits on the start edge (visual right in RTL, visual left in LTR)
+                            // and fades toward the content area (inward).
+                            background: tabsScroll.isRTL
+                                ? 'linear-gradient(to left, var(--color-bg) 35%, rgba(0,0,0,0))'
+                                : 'linear-gradient(to right, var(--color-bg) 35%, rgba(0,0,0,0))',
+                            border: 'none', cursor: 'pointer',
+                            color: 'var(--color-text-secondary)',
+                            zIndex: 2,
+                        }}
+                    >
+                        {tabsScroll.isRTL ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+                    </button>
+                )}
+                {tabsScroll.canEnd && (
+                    <button
+                        type="button"
+                        onClick={() => scrollTabs('forward')}
+                        aria-label={t('catalog.scroll_forward', 'التصنيفات التالية')}
+                        style={{
+                            position: 'absolute',
+                            top: 0, bottom: 0,
+                            insetInlineEnd: 0,
+                            width: 32,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: tabsScroll.isRTL
+                                ? 'linear-gradient(to right, var(--color-bg) 35%, rgba(0,0,0,0))'
+                                : 'linear-gradient(to left, var(--color-bg) 35%, rgba(0,0,0,0))',
+                            border: 'none', cursor: 'pointer',
+                            color: 'var(--color-text-secondary)',
+                            zIndex: 2,
+                        }}
+                    >
+                        {tabsScroll.isRTL ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
+                    </button>
+                )}
+                <div ref={tabsScrollRef} style={{
                     display: 'flex',
                     gap: screenWidth <= 640 ? 2 : 4,
                     overflowX: 'auto',
@@ -536,6 +688,7 @@ export default function ProductCatalogPage() {
                             </button>
                         )
                     })}
+                </div>
                 </div>
 
                 {/* Filter toggle button */}
