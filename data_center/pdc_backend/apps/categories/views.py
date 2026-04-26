@@ -598,13 +598,30 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
                 if not ar_ok and en_ok:
                     translated, _ = translate_text_core(en, 'en', 'ar')
+                    translated = (translated or '').strip()
+                    # Reject "translations" that don't actually contain Arabic
+                    # letters — the LLM does this for pure-code inputs like
+                    # "ASTM SCH.40" or "WJ SANDS" (returns the input back
+                    # verbatim). If we accept it, _untranslated_qs() rightly
+                    # keeps flagging the row, and the client loops forever.
+                    if not ar_re.search(translated):
+                        raise TranslateError(
+                            f'No Arabic letters in result for "{en}"',
+                            'لا يوجد محتوى قابل للترجمة (رمز/اختصار فقط)',
+                        )
                     Category.objects.filter(pk=cat.pk).update(
-                        name_ar=translated.strip(), updated_at=now,
+                        name_ar=translated, updated_at=now,
                     )
                 elif not en_ok and ar_ok:
                     translated, _ = translate_text_core(ar, 'ar', 'en')
+                    translated = (translated or '').strip()
+                    if not la_re.search(translated):
+                        raise TranslateError(
+                            f'No Latin letters in result for "{ar}"',
+                            'لا يوجد محتوى قابل للترجمة (رمز/اختصار فقط)',
+                        )
                     Category.objects.filter(pk=cat.pk).update(
-                        name_en=translated.strip(), updated_at=now,
+                        name_en=translated, updated_at=now,
                     )
                 else:
                     continue  # both sides valid (race with another writer)
