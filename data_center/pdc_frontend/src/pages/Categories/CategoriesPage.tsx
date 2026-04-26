@@ -2,13 +2,13 @@
  * Categories Management Page — Super Admin only
  * Hierarchical tree view (up to 5 levels) + attribute schemas management
  */
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
     ChevronDown, ChevronLeft, Plus, Trash2, Edit3, Save, X,
     ToggleLeft, ToggleRight, FolderPlus, GitBranch, Tag, Layers,
     Hash, ChevronRight, Upload, Download, CheckCircle, AlertCircle, FileSpreadsheet,
-    Languages,
+    Languages, Search, ListTree, ChevronsDownUp,
 } from 'lucide-react'
 import { categoriesAPI, translateAPI } from '@/api/client'
 import { toast } from 'react-toastify'
@@ -629,15 +629,19 @@ function AttributesPanel({ catId }: { catId: number }) {
 ══════════════════════════════════════════════════════════ */
 function TreeNode({
     node, depth = 0,
+    expandedIds, onToggle, highlight,
     onEdit, onAddChild,
 }: {
     node: CategoryTreeNode
     depth?: number
+    expandedIds: Set<number>
+    onToggle: (id: number) => void
+    highlight?: string
     onEdit: (node: CategoryTreeNode) => void
     onAddChild: (parent: { id: number; name_ar: string; level: number }) => void
 }) {
     const qc = useQueryClient()
-    const [expanded, setExpanded] = useState(depth < 1)
+    const expanded = expandedIds.has(node.id)
     const [showAttrs, setShowAttrs] = useState(false)
 
     const lc = LEVEL_COLORS[node.level] ?? LEVEL_COLORS[1]
@@ -666,7 +670,7 @@ function TreeNode({
             }}>
                 {/* Expand toggle */}
                 <button
-                    onClick={() => setExpanded(e => !e)}
+                    onClick={() => onToggle(node.id)}
                     style={{ ...iconBtnStyle, visibility: hasChildren ? 'visible' : 'hidden', padding: 2 }}>
                     {expanded ? <ChevronDown size={14} /> : <ChevronLeft size={14} />}
                 </button>
@@ -753,7 +757,11 @@ function TreeNode({
             {expanded && hasChildren && (
                 <div style={{ marginTop: 4 }}>
                     {node.children.map(child => (
-                        <TreeNode key={child.id} node={child} depth={depth + 1} onEdit={onEdit} onAddChild={onAddChild} />
+                        <TreeNode
+                            key={child.id} node={child} depth={depth + 1}
+                            expandedIds={expandedIds} onToggle={onToggle} highlight={highlight}
+                            onEdit={onEdit} onAddChild={onAddChild}
+                        />
                     ))}
                 </div>
             )}
@@ -782,13 +790,135 @@ export default function CategoriesPage() {
     const fileInputRef = useRef<HTMLInputElement>(null)
     const queryClient = useQueryClient()
 
+    /* Search & expand state — needed when the tree gets large (1000+ nodes).
+       `expandedIds` is the persisted user state; `searchCollapsed` is a temporary
+       override used only while a search is active so the user can locally close
+       an auto-expanded ancestor without polluting the persisted state. */
+    const [searchInput, setSearchInput] = useState('')
+    const [searchQuery, setSearchQuery] = useState('')
+    const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set())
+    const [searchCollapsed, setSearchCollapsed] = useState<Set<number>>(() => new Set())
+
+    /* Debounce search to keep typing smooth on big trees */
+    useEffect(() => {
+        const t = setTimeout(() => setSearchQuery(searchInput.trim().toLowerCase()), 180)
+        return () => clearTimeout(t)
+    }, [searchInput])
+
+    /* Reset temporary search-only collapses whenever the query changes/clears
+       so previous overrides don't bleed into a new search context. */
+    useEffect(() => {
+        setSearchCollapsed(new Set())
+    }, [searchQuery])
+
     const { data: tree = [], isLoading, error } = useQuery<CategoryTreeNode[]>({
         queryKey: ['categories-tree'],
         queryFn: () => categoriesAPI.tree().then(r => r.data),
     })
 
-    const totalNodes = (nodes: CategoryTreeNode[]): number =>
-        nodes.reduce((acc, n) => acc + 1 + totalNodes(n.children), 0)
+    /* Memoized so a 1000-node walk doesn't re-run on every keystroke */
+    const totalNodes = useMemo(() => {
+        const count = (nodes: CategoryTreeNode[]): number =>
+            nodes.reduce((acc, n) => acc + 1 + count(n.children), 0)
+        return count(tree)
+    }, [tree])
+
+    /* Filter the tree by search query — keeps any node that matches OR has a
+       matching descendant. Auto-collects ancestors of matches so they expand. */
+    const { displayTree, ancestorIds, matchCount } = useMemo(() => {
+        if (!searchQuery) {
+            return { displayTree: tree, ancestorIds: new Set<number>(), matchCount: 0 }
+        }
+        const ancestors = new Set<number>()
+        let matches = 0
+        const walk = (nodes: CategoryTreeNode[]): CategoryTreeNode[] => {
+            const out: CategoryTreeNode[] = []
+            for (const n of nodes) {
+                const kids = walk(n.children)
+                const selfMatch =
+                    n.name_ar.toLowerCase().includes(searchQuery) ||
+                    (n.name_en?.toLowerCase().includes(searchQuery) ?? false) ||
+                    n.code.toLowerCase().includes(searchQuery)
+                if (selfMatch) matches++
+                if (selfMatch || kids.length > 0) {
+                    if (kids.length > 0) ancestors.add(n.id)
+                    out.push({ ...n, children: kids })
+                }
+            }
+            return out
+        }
+        return { displayTree: walk(tree), ancestorIds: ancestors, matchCount: matches }
+    }, [tree, searchQuery])
+
+    /* Effective expansion:
+        no search → just user state
+        search    → (user ∪ search-forced ancestors) − temporarily-collapsed */
+    const effectiveExpanded = useMemo(() => {
+        if (!searchQuery) return expandedIds
+        const merged = new Set(expandedIds)
+        ancestorIds.forEach(id => merged.add(id))
+        searchCollapsed.forEach(id => merged.delete(id))
+        return merged
+    }, [expandedIds, ancestorIds, searchCollapsed, searchQuery])
+
+    const toggleNode = (id: number) => {
+        if (searchQuery) {
+            const isExpanded = effectiveExpanded.has(id)
+            if (isExpanded) {
+                /* Closing while searching: just override locally, keep persisted state clean */
+                setSearchCollapsed(prev => {
+                    const next = new Set(prev)
+                    next.add(id)
+                    return next
+                })
+                /* Also un-track from user state if it was there, so closing is unambiguous */
+                setExpandedIds(prev => {
+                    if (!prev.has(id)) return prev
+                    const next = new Set(prev)
+                    next.delete(id)
+                    return next
+                })
+            } else {
+                /* Opening while searching: lift any local close override and persist the open */
+                setSearchCollapsed(prev => {
+                    if (!prev.has(id)) return prev
+                    const next = new Set(prev)
+                    next.delete(id)
+                    return next
+                })
+                setExpandedIds(prev => {
+                    const next = new Set(prev)
+                    next.add(id)
+                    return next
+                })
+            }
+            return
+        }
+        setExpandedIds(prev => {
+            const next = new Set(prev)
+            if (next.has(id)) next.delete(id)
+            else next.add(id)
+            return next
+        })
+    }
+
+    /* Iterative collect — avoids recursive flatMap allocation churn on large trees */
+    const collectAllIds = (roots: CategoryTreeNode[]): number[] => {
+        const ids: number[] = []
+        const stack: CategoryTreeNode[] = [...roots]
+        while (stack.length) {
+            const n = stack.pop()!
+            ids.push(n.id)
+            for (const c of n.children) stack.push(c)
+        }
+        return ids
+    }
+
+    const expandAll = () => setExpandedIds(new Set(collectAllIds(tree)))
+    const collapseAll = () => {
+        setExpandedIds(new Set())
+        setSearchCollapsed(new Set())
+    }
 
     /* Template download */
     const handleDownloadTemplate = async () => {
@@ -842,7 +972,7 @@ export default function CategoriesPage() {
                         <div>
                             <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>شجرة التصنيفات</h1>
                             <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
-                                هرمية حتى 5 مستويات — {totalNodes(tree)} تصنيف إجمالاً
+                                هرمية حتى 5 مستويات — {totalNodes} تصنيف إجمالاً
                             </p>
                         </div>
                     </div>
@@ -943,17 +1073,97 @@ export default function CategoriesPage() {
                     </button>
                 </div>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {tree.map(rootNode => (
-                        <TreeNode
-                            key={rootNode.id}
-                            node={rootNode}
-                            depth={0}
-                            onEdit={node => setModal({ mode: 'edit', node })}
-                            onAddChild={parent => setModal({ mode: 'add-child', parent })}
-                        />
-                    ))}
-                </div>
+                <>
+                    {/* Toolbar: search + expand/collapse all */}
+                    <div style={{
+                        display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center',
+                        flexWrap: 'wrap',
+                    }}>
+                        <div style={{ position: 'relative', flex: '1 1 280px', minWidth: 220 }}>
+                            <Search size={14} style={{
+                                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                                color: 'var(--color-text-secondary)', pointerEvents: 'none',
+                            }} />
+                            <input
+                                type="text"
+                                value={searchInput}
+                                onChange={e => setSearchInput(e.target.value)}
+                                placeholder="ابحث بالاسم أو الكود..."
+                                style={{
+                                    width: '100%', padding: '9px 36px 9px 36px',
+                                    background: 'var(--color-surface-raised)',
+                                    border: '1px solid var(--color-border)',
+                                    borderRadius: 8, color: 'var(--color-text-primary)',
+                                    fontSize: 13, outline: 'none',
+                                }}
+                            />
+                            {searchInput && (
+                                <button
+                                    onClick={() => setSearchInput('')}
+                                    style={{
+                                        position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+                                        background: 'none', border: 'none', cursor: 'pointer',
+                                        color: 'var(--color-text-secondary)', padding: 4,
+                                    }}
+                                    title="مسح البحث"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+                        <button
+                            className="btn btn-ghost"
+                            onClick={expandAll}
+                            disabled={!!searchQuery}
+                            title={searchQuery ? 'متاح فقط بدون بحث' : 'فتح كل الفروع'}
+                        >
+                            <ListTree size={14} /> فتح الكل
+                        </button>
+                        <button
+                            className="btn btn-ghost"
+                            onClick={collapseAll}
+                            title="طيّ كل الفروع"
+                        >
+                            <ChevronsDownUp size={14} /> طيّ الكل
+                        </button>
+                    </div>
+
+                    {/* Search result summary */}
+                    {searchQuery && (
+                        <div style={{
+                            marginBottom: 12, padding: '8px 12px', borderRadius: 8,
+                            background: matchCount > 0 ? 'rgba(74,144,217,0.08)' : 'rgba(224,112,112,0.08)',
+                            border: `1px solid ${matchCount > 0 ? 'rgba(74,144,217,0.2)' : 'rgba(224,112,112,0.2)'}`,
+                            fontSize: 12, color: 'var(--color-text-secondary)',
+                        }}>
+                            {matchCount > 0
+                                ? `وُجد ${matchCount} تصنيف مطابق لـ "${searchQuery}"`
+                                : `لا توجد نتائج لـ "${searchQuery}"`}
+                        </div>
+                    )}
+
+                    {displayTree.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--color-text-secondary)' }}>
+                            <Search size={32} style={{ opacity: 0.3, marginBottom: 10 }} />
+                            <p>لا توجد نتائج</p>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {displayTree.map(rootNode => (
+                                <TreeNode
+                                    key={rootNode.id}
+                                    node={rootNode}
+                                    depth={0}
+                                    expandedIds={effectiveExpanded}
+                                    onToggle={toggleNode}
+                                    highlight={searchQuery || undefined}
+                                    onEdit={node => setModal({ mode: 'edit', node })}
+                                    onAddChild={parent => setModal({ mode: 'add-child', parent })}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </>
             )}
 
             {/* Help text */}
