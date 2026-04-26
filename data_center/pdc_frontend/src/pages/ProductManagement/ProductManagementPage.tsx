@@ -43,7 +43,10 @@ interface Category { id: number; name_ar: string; slug: string }
 interface ImportResult {
     created_count: number
     error_count: number
+    updated_count?: number
+    format?: string
     created: { row: number; sku: string; name: string }[]
+    updated?: { row: number; sku: string; name: string }[]
     errors: { row: number; sku: string; errors: string[] }[]
 }
 
@@ -102,7 +105,9 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
         try {
             const res = await productsAPI.importExcel(fd)
             setResult(res.data)
-            if (res.data.created_count > 0) onSuccess()
+            if ((res.data.created_count || 0) > 0 || (res.data.updated_count || 0) > 0) {
+                onSuccess()
+            }
         } catch (err: unknown) {
             const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'فشل استيراد الملف'
             toast.error(msg)
@@ -153,11 +158,25 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
                     </button>
                 </div>
 
+                {/* SAP file note */}
+                <div style={{
+                    background: 'rgba(74, 222, 128, 0.06)',
+                    border: '1px solid rgba(74, 222, 128, 0.25)',
+                    borderRadius: 10, padding: '12px 16px', marginBottom: 14,
+                    fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.7,
+                }}>
+                    <div style={{ color: '#4ADE80', fontWeight: 700, marginBottom: 4, fontSize: 13 }}>
+                        ⚡ ملف SAP — لا يحتاج اختيار قسم
+                    </div>
+                    لو الملف فيه عمود <code style={{ color: '#C8A84B' }}>Material_No.Material Group No</code>،
+                    ينربط كل منتج بقسمه تلقائياً. ارفع الملف مباشرة في الخطوة (③).
+                </div>
+
                 {/* Step 1: Choose Category */}
                 <div style={stepBox}>
-                    <div style={stepTitle}>① اختر القسم</div>
+                    <div style={stepTitle}>① اختر القسم (اختياري لملفات SAP)</div>
                     <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 10 }}>
-                        كل قسم له قالب مختلف يشمل السمات الخاصة به. اختر القسم أولاً.
+                        لقالب PDC كل قسم له قالب مختلف يشمل السمات الخاصة به.
                     </div>
                     {categories.length === 1 ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(200,168,75,0.07)', border: '1px solid rgba(200,168,75,0.3)', borderRadius: 8 }}>
@@ -201,14 +220,14 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
                 </div>
 
                 {/* Step 3: Upload */}
-                <div style={{ ...stepBox, opacity: selectedCatId ? 1 : 0.45 }}>
+                <div style={stepBox}>
                     <div style={stepTitle}>③ رفع الملف المكتمل</div>
                     <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 10, lineHeight: 1.6 }}>
-                        بعد تعبئة القالب، ارفعه هنا. سيُحلَّل تلقائياً ويُضاف كل منتج بسماته.
+                        ارفع الملف هنا. النظام يكتشف صيغة الملف تلقائياً (قالب PDC أو SAP) ويضيف/يحدّث المنتجات بسماتها.
                     </div>
                     <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileChange} />
-                    <button onClick={() => { if (selectedCatId) fileInputRef.current?.click() }} disabled={importing || !selectedCatId}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 18px', background: importing || !selectedCatId ? 'rgba(200,168,75,0.06)' : 'linear-gradient(135deg,#C8A84B,#a8832f)', border: 'none', borderRadius: 8, color: importing || !selectedCatId ? 'var(--color-text-muted)' : 'var(--color-bg)', fontSize: 12, fontWeight: 700, cursor: (importing || !selectedCatId) ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
+                    <button onClick={() => fileInputRef.current?.click()} disabled={importing}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 18px', background: importing ? 'rgba(200,168,75,0.06)' : 'linear-gradient(135deg,#C8A84B,#a8832f)', border: 'none', borderRadius: 8, color: importing ? 'var(--color-text-muted)' : 'var(--color-bg)', fontSize: 12, fontWeight: 700, cursor: importing ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
                         {importing ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Upload size={14} />}
                         {importing ? 'جاري الاستيراد...' : 'اختر ملف Excel للرفع'}
                     </button>

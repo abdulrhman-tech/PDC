@@ -503,7 +503,14 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='import-excel', permission_classes=[permissions.IsAuthenticated])
     def import_excel(self, request):
-        """Bulk import products from a category-specific Excel file."""
+        """Bulk import products from Excel.
+
+        Supports two formats automatically:
+        1) PDC template — row 1 = Arabic labels, row 2 = machine keys, data from row 3.
+        2) SAP export — row 1 = SAP headers (Material_No, Material_Description,
+           Material_No.<Field>...), data from row 2. Category is resolved by
+           matching `Material_No.Material Group No` to `Category.code`.
+        """
         from apps.logs.utils import log_action
         import openpyxl
         from apps.categories.models import Category, CategoryAttributeSchema
@@ -530,6 +537,25 @@ class ProductViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'ملف Excel غير صالح'}, status=status.HTTP_400_BAD_REQUEST)
 
         rows = list(ws.iter_rows(values_only=True))
+        if len(rows) < 2:
+            return Response({'detail': 'الملف فارغ أو لا يحتوي على بيانات'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ── Format detection ──
+        # SAP exports have headers like Material_No, Material_Description, and
+        # Material_No.Material Group No on row 1. Normalize each header (strip
+        # non-alphanumeric, lowercase) so variants like "Material Description"
+        # or "Material No" still detect correctly.
+        import re as _re
+        first_row = [str(c).strip() if c is not None else '' for c in rows[0]]
+        first_row_norm = [_re.sub(r'[^a-z0-9]', '', c.lower()) for c in first_row]
+        is_sap_format = (
+            'materialno' in first_row_norm
+            and any(n.startswith('materialdescription') for n in first_row_norm)
+        )
+
+        if is_sap_format:
+            return self._import_sap_excel(request, rows, first_row)
+
         if len(rows) < 3:
             return Response({'detail': 'الملف فارغ أو لا يحتوي على بيانات'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -636,6 +662,257 @@ class ProductViewSet(viewsets.ModelViewSet):
             'created_count': len(created),
             'error_count': len(errors),
             'created': created,
+            'errors': errors,
+        })
+
+    def _import_sap_excel(self, request, rows, headers):
+        """Import products from a SAP-format Excel.
+
+        Expected layout:
+          Row 1 (headers): Material_No, Material_Description,
+                           Material_No.Material Group No, Material_No.<X>, ...
+          Rows 2+        : data
+        Category is matched on `Category.code == Material Group No`.
+        Other `Material_No.<X>` columns are mapped to attributes by fuzzy
+        matching against the per-category `CategoryAttributeSchema.field_key`
+        (case- and separator-insensitive).
+        """
+        import re
+        from apps.logs.utils import log_action
+        from apps.categories.models import Category, CategoryAttributeSchema
+
+        def _norm(s: str) -> str:
+            """Normalize identifier: lowercase, strip non-alphanumeric."""
+            return re.sub(r'[^a-z0-9]', '', (s or '').lower())
+
+        # Map header index → role / normalized name. Only columns whose
+        # header starts with `Material_No.` are eligible to become product
+        # attributes; bare `Material_No` and `Material_Description` are
+        # special, and any other unrelated columns are ignored.
+        sku_idx = None
+        name_idx = None
+        group_no_idx = None
+        brand_idx = None
+        origin_idx = None
+        color_idx = None
+        attr_cols = []  # list of (col_idx, normalized_name, original_label)
+
+        for i, h in enumerate(headers):
+            if not h:
+                continue
+            h_lower = h.lower().strip()
+            h_norm = _norm(h)
+            if h_norm == 'materialno':
+                sku_idx = i
+                continue
+            if h_norm == 'materialdescription':
+                name_idx = i
+                continue
+
+            # Only `Material_No.<X>` (or `Material No <X>`) columns count
+            # as SAP fields. Anything else is ignored to avoid accidental
+            # matches with unrelated workbook columns.
+            label = None
+            if h_lower.startswith('material_no.'):
+                label = h[len('material_no.'):].strip()
+            elif h_lower.startswith('material no.'):
+                label = h[len('material no.'):].strip()
+            elif h_lower.startswith('material_no '):
+                label = h[len('material_no '):].strip()
+            if label is None:
+                continue
+
+            label_norm = _norm(label)
+
+            if label_norm == 'materialgroupno':
+                group_no_idx = i
+                continue
+            if label_norm == 'brand':
+                brand_idx = i
+                continue
+            if label_norm in ('brandorigin', 'cityoforigin'):
+                if origin_idx is None:
+                    origin_idx = i
+                continue
+            if label_norm == 'itemcolor':
+                color_idx = i
+                continue
+
+            attr_cols.append((i, label_norm, label))
+
+        if sku_idx is None:
+            return Response(
+                {'detail': 'لم يُعثر على عمود Material_No'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if group_no_idx is None:
+            return Response(
+                {'detail': 'لم يُعثر على عمود Material_No.Material Group No'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Preload categories indexed by code (case-insensitive) and id
+        cats_by_code = {}
+        cats_by_id = {}
+        for c in Category.objects.exclude(code=''):
+            cats_by_code[c.code.strip().upper()] = c
+            cats_by_id[c.id] = c
+        for c in Category.objects.filter(code=''):
+            cats_by_id[c.id] = c
+
+        # Preload attribute schemas grouped by category id (direct schemas only)
+        direct_schemas_by_cat = {}
+        for s in CategoryAttributeSchema.objects.all():
+            direct_schemas_by_cat.setdefault(s.category_id, {})[_norm(s.field_key)] = s
+
+        # Cache for "effective" schemas including those inherited from
+        # ancestor categories. Walks the parent chain and merges schemas;
+        # closer (deeper) categories override the same normalized key.
+        effective_schemas_cache: dict[int, dict] = {}
+
+        def _effective_schemas(cat) -> dict:
+            if cat is None:
+                return {}
+            if cat.id in effective_schemas_cache:
+                return effective_schemas_cache[cat.id]
+            chain = []
+            node = cat
+            seen = set()
+            while node is not None and node.id not in seen:
+                seen.add(node.id)
+                chain.append(node)
+                parent_id = getattr(node, 'parent_id', None)
+                node = cats_by_id.get(parent_id) if parent_id else None
+            merged: dict = {}
+            # Walk root-first so deeper category schemas override shallower
+            for n in reversed(chain):
+                merged.update(direct_schemas_by_cat.get(n.id, {}))
+            effective_schemas_cache[cat.id] = merged
+            return merged
+
+        # Brand cache
+        brands_map = {}
+        for b in Brand.objects.all():
+            if b.name_ar:
+                brands_map[b.name_ar.strip().lower()] = b
+            brands_map[b.name.strip().lower()] = b
+
+        def _cell(row, idx):
+            if idx is None or idx >= len(row):
+                return ''
+            v = row[idx]
+            if v is None:
+                return ''
+            if isinstance(v, float) and v.is_integer():
+                return str(int(v))
+            return str(v).strip()
+
+        created = []
+        updated = []
+        errors = []
+
+        for row_num, row in enumerate(rows[1:], start=2):
+            sku = _cell(row, sku_idx)
+            name_ar = _cell(row, name_idx)
+            group_no = _cell(row, group_no_idx)
+
+            if not sku and not name_ar and not group_no:
+                continue  # blank row
+
+            row_errors = []
+            if not sku:
+                row_errors.append('Material_No فارغ')
+            if not name_ar:
+                # Fall back: use SKU as name if description is missing
+                name_ar = sku
+
+            cat_obj = None
+            if not group_no:
+                row_errors.append('Material Group No فارغ')
+            else:
+                cat_obj = cats_by_code.get(group_no.strip().upper())
+                if cat_obj is None:
+                    row_errors.append(
+                        f'لا يوجد قسم بكود "{group_no}" — قم بمزامنة الأقسام من SAP أولاً'
+                    )
+
+            if row_errors:
+                errors.append({'row': row_num, 'sku': sku or '—',
+                               'errors': row_errors})
+                continue
+
+            # Build attributes by fuzzy-matching column labels to schema field_keys
+            attributes = {}
+            cat_schema = _effective_schemas(cat_obj)
+            for col_idx, col_norm, col_label in attr_cols:
+                if col_idx == group_no_idx:
+                    continue
+                val = _cell(row, col_idx)
+                if not val:
+                    continue
+                schema = cat_schema.get(col_norm)
+                if schema is None:
+                    continue  # column not part of this category's schema
+                attributes[schema.field_key] = val
+
+            try:
+                existing = Product.objects.filter(sku=sku).first()
+                base_kwargs = dict(
+                    product_name_ar=name_ar,
+                    category=cat_obj,
+                    updated_by=request.user,
+                )
+                # Optional simple fields if present in the file
+                brand_name = _cell(row, brand_idx).lower() if brand_idx is not None else ''
+                if brand_name and brand_name in brands_map:
+                    base_kwargs['brand'] = brands_map[brand_name]
+
+                origin = _cell(row, origin_idx)
+                if origin:
+                    base_kwargs['origin_country'] = origin
+
+                color = _cell(row, color_idx)
+                if color:
+                    base_kwargs['color'] = color
+
+                if existing:
+                    for k, v in base_kwargs.items():
+                        setattr(existing, k, v)
+                    # Merge attributes (new values overwrite, others kept)
+                    merged = dict(existing.attributes or {})
+                    merged.update(attributes)
+                    existing.attributes = merged
+                    existing.save()
+                    updated.append({'row': row_num, 'sku': sku,
+                                    'name': name_ar, 'id': existing.id})
+                else:
+                    base_kwargs.update(
+                        sku=sku,
+                        attributes=attributes,
+                        status='مسودة',
+                        inventory_type='دوري',
+                        created_by=request.user,
+                    )
+                    product = Product.objects.create(**base_kwargs)
+                    created.append({'row': row_num, 'sku': sku,
+                                    'name': name_ar, 'id': product.id})
+            except Exception as e:
+                errors.append({'row': row_num, 'sku': sku, 'errors': [str(e)]})
+
+        log_action(
+            request.user, 'excel_import', None,
+            f'استيراد SAP: {len(created)} جديد، {len(updated)} محدّث، '
+            f'{len(errors)} خطأ',
+            request,
+        )
+
+        return Response({
+            'format': 'sap',
+            'created_count': len(created),
+            'updated_count': len(updated),
+            'error_count': len(errors),
+            'created': created,
+            'updated': updated,
             'errors': errors,
         })
 
