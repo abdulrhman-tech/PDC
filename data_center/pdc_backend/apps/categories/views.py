@@ -235,11 +235,53 @@ class CategoryViewSet(viewsets.ModelViewSet):
     # ── Flat list (for dropdowns) ─────────────────────────────────
     @action(detail=False, methods=['get'], url_path='flat')
     def flat(self, request):
-        """Returns flat list of all categories with breadcrumb paths."""
-        qs = Category.objects.select_related('parent__parent__parent__parent').order_by(
-            'level', 'sort_order', 'name_ar'
+        """Returns flat list of all categories with breadcrumb paths.
+
+        Optimized: avoids the per-row ``children.exists()`` and ``get_ancestors()``
+        queries used by ``CategoryFlatSerializer`` — with ~1.4k categories
+        those would explode into thousands of queries and time out. Instead
+        we load every category once, build paths from an in-memory map, and
+        compute ``has_children`` from a single distinct-parent query.
+        """
+        cats = list(Category.objects.all().values(
+            'id', 'code', 'name_ar', 'name_en', 'level',
+            'parent_id', 'sort_order', 'is_active',
+        ))
+        by_id = {c['id']: c for c in cats}
+        parent_ids = set(
+            Category.objects.exclude(parent_id__isnull=True)
+            .values_list('parent_id', flat=True).distinct()
         )
-        return Response(CategoryFlatSerializer(qs, many=True).data)
+
+        def _path(cat, field):
+            parts: list[str] = []
+            node = cat
+            seen: set[int] = set()
+            while node is not None and node['id'] not in seen:
+                seen.add(node['id'])
+                parts.append(node.get(field) or node.get('name_ar') or '')
+                pid = node.get('parent_id')
+                node = by_id.get(pid) if pid else None
+            return ' > '.join(reversed(parts))
+
+        out = []
+        for c in cats:
+            out.append({
+                'id': c['id'],
+                'code': c['code'],
+                'name_ar': c['name_ar'],
+                'name_en': c['name_en'],
+                'level': c['level'],
+                'parent': c['parent_id'],
+                'sort_order': c['sort_order'],
+                'is_active': c['is_active'],
+                'path_ar': _path(c, 'name_ar'),
+                'path_en': _path(c, 'name_en'),
+                'has_children': c['id'] in parent_ids,
+            })
+        # Match the previous ordering: level, sort_order, name_ar
+        out.sort(key=lambda r: (r['level'], r['sort_order'] or 0, r['name_ar'] or ''))
+        return Response(out)
 
     # ── Attributes ────────────────────────────────────────────────
     @action(detail=True, methods=['get', 'post'])
