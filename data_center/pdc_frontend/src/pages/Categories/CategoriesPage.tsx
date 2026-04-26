@@ -116,9 +116,15 @@ function CategoryModal({
     const childLevel = parentNode ? parentNode.level + 1 : 1
     const levelInfo = LEVEL_COLORS[isEdit ? existing!.level : childLevel] ?? LEVEL_COLORS[1]
 
-    /* Auto-translate: detects which name field is filled and translates into the other.
-       If both are filled, prefers Ar→En (Arabic is the required source field). */
+    /* Auto-translate: scans BOTH name fields for actual Arabic/Latin characters
+       (not just which field is non-empty), so that text typed in the wrong field
+       is auto-corrected. Example: typing "الحجر الطبيعي" in the English field
+       and "CR1100000" in the Arabic field → moves Arabic text to the Arabic field
+       and produces a proper English translation in the English field. */
     const [translating, setTranslating] = useState(false)
+    const arabicCharRegex = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/
+    const latinLetterRegex = /[A-Za-z]/
+
     const handleAutoTranslate = async () => {
         const ar = form.name_ar.trim()
         const en = form.name_en.trim()
@@ -126,19 +132,49 @@ function CategoryModal({
             toast.warning('اكتب الاسم بالعربية أو الإنجليزية أولاً')
             return
         }
-        const direction: 'ar→en' | 'en→ar' = ar ? 'ar→en' : 'en→ar'
+
+        // Find the field that actually contains Arabic characters (regardless of which input it's in)
+        const arabicSource =
+            arabicCharRegex.test(ar) ? ar :
+            arabicCharRegex.test(en) ? en : ''
+        // Find the field that actually contains real English letters (excluding pure codes/numbers like "CR1100000")
+        const latinSource =
+            (!arabicCharRegex.test(en) && latinLetterRegex.test(en)) ? en :
+            (!arabicCharRegex.test(ar) && latinLetterRegex.test(ar)) ? ar : ''
+
+        let sourceText: string
+        let direction: 'ar→en' | 'en→ar'
+        if (arabicSource) {
+            sourceText = arabicSource
+            direction = 'ar→en'
+        } else if (latinSource) {
+            sourceText = latinSource
+            direction = 'en→ar'
+        } else {
+            toast.warning('لم أتعرف على نص عربي أو إنجليزي قابل للترجمة')
+            return
+        }
+
         setTranslating(true)
         try {
-            const text = direction === 'ar→en' ? ar : en
-            const res = await translateAPI.translate(text, direction === 'ar→en' ? 'ar' : 'en', direction === 'ar→en' ? 'en' : 'ar')
+            const res = await translateAPI.translate(
+                sourceText,
+                direction === 'ar→en' ? 'ar' : 'en',
+                direction === 'ar→en' ? 'en' : 'ar',
+            )
             const translated = res.data.translated?.trim()
             if (!translated) {
                 toast.error('لم تنجح الترجمة')
                 return
             }
-            if (direction === 'ar→en') set('name_en', translated)
-            else                       set('name_ar', translated)
-            toast.success(direction === 'ar→en' ? 'تمت الترجمة إلى الإنجليزية' : 'تمت الترجمة إلى العربية')
+            // Always place Arabic in name_ar and English in name_en, overwriting whatever was there
+            if (direction === 'ar→en') {
+                setForm(f => ({ ...f, name_ar: sourceText, name_en: translated }))
+                toast.success('تم نقل العربي وترجمته إلى الإنجليزي')
+            } else {
+                setForm(f => ({ ...f, name_en: sourceText, name_ar: translated }))
+                toast.success('تم نقل الإنجليزي وترجمته إلى العربي')
+            }
         } catch (e: unknown) {
             const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'فشلت الترجمة'
             toast.error(msg)
