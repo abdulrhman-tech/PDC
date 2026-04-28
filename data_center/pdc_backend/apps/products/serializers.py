@@ -37,11 +37,17 @@ class ProductListSerializer(serializers.ModelSerializer):
         ]
 
     def get_main_image_url(self, obj):
-        img = next(
-            (i for i in obj.images.all() if i.image_type == 'main' and i.status == 'approved'),
-            None
-        )
-        return img.get_display_url() if img else None
+        # Prefer the canonical approved 'main' image; if it's missing, fall
+        # back to ANY approved image (lifestyle/gallery/etc.) so catalog
+        # cards never render empty when other images exist. Ordered by the
+        # image's `order` field as a deterministic tie-breaker.
+        approved = [i for i in obj.images.all() if i.status == 'approved']
+        if not approved:
+            return None
+        img = next((i for i in approved if i.image_type == 'main'), None)
+        if img is None:
+            img = sorted(approved, key=lambda i: (i.order, i.id))[0]
+        return img.get_display_url()
 
     def get_completeness(self, obj):
         return obj.completeness_score()
