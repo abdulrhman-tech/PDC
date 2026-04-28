@@ -153,6 +153,10 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 24,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # Custom handler returns friendly Arabic JSON for low-level Django
+    # exceptions (e.g. TooManyFilesSent during multipart parsing) that
+    # otherwise surface as bare 400/500 responses with no body.
+    'EXCEPTION_HANDLER': 'pdc_backend.exceptions.custom_exception_handler',
 }
 
 # Spectacular (Swagger)
@@ -252,3 +256,16 @@ SAP_CONFIG = {
 MAX_IMAGE_SIZE_MB = 10
 ALLOWED_IMAGE_FORMATS = ['jpg', 'jpeg', 'png', 'webp']
 IMAGE_REQUIRED_SIZE = (2000, 2000)
+
+# ── Multipart upload limits ──────────────────────────────────────────
+# Django 4.1+ ships a hard cap of 100 files per multipart request via
+# DATA_UPLOAD_MAX_NUMBER_FILES. The bulk-image upload modal advertises
+# up to 200 images per batch, so this cap was silently rejecting any
+# upload of 101+ files with TooManyFilesSent before the view could run.
+# Raise it to 250 to leave headroom above the 200-file UI cap.
+DATA_UPLOAD_MAX_NUMBER_FILES = 250
+# DATA_UPLOAD_MAX_MEMORY_SIZE is intentionally NOT raised: per Django
+# docs it excludes file upload data, so it doesn't cap the multipart
+# total. FILE_UPLOAD_MAX_MEMORY_SIZE (default 2.5 MB) is per-file and
+# only controls when an individual file is streamed to disk vs kept in
+# memory; either way the file is fully received, so we don't override.
