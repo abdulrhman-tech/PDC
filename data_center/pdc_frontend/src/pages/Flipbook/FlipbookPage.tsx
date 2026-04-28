@@ -927,16 +927,30 @@ export default function FlipbookPage() {
         return () => window.removeEventListener("resize", fn);
     }, []);
 
+    /* Pull the full catalog. page_size=5000 matches the server's
+       max_page_size cap, giving generous headroom over the current ~1.6k
+       product set. We deliberately do NOT filter by status: this matches
+       the existing /catalog behavior, which already shows products of all
+       statuses to anonymous viewers. Curation here is by image presence,
+       not status. Categories are fetched at full size too so chapter
+       rendering has every needed name+icon. */
     const { data: productsData, isLoading: loadingProducts } = useQuery({
         queryKey: ["flipbook-products"],
-        queryFn: () => productsAPI.list({ page_size: 500, status: "نشط" }).then(r => r.data),
+        queryFn: () => productsAPI.list({ page_size: 5000 }).then(r => r.data),
     });
     const { data: categoriesData, isLoading: loadingCats } = useQuery({
         queryKey: ["flipbook-categories"],
-        queryFn: () => categoriesAPI.list().then(r => r.data),
+        queryFn: () => categoriesAPI.list({ page_size: 5000 }).then(r => r.data),
     });
 
-    const products: Product[] = useMemo(() => (productsData?.results ?? productsData ?? []) as Product[], [productsData]);
+    /* Only show products that have at least one approved image. After the
+       serializer's main_image_url fallback, this field is null only when
+       the product has zero approved images — exactly the products we want
+       to skip so the flipbook never shows empty cards. */
+    const products: Product[] = useMemo(() => {
+        const all = (productsData?.results ?? productsData ?? []) as Product[];
+        return all.filter(p => !!p.main_image_url);
+    }, [productsData]);
     const categories: Category[] = useMemo(() => (categoriesData?.results ?? categoriesData ?? []) as Category[], [categoriesData]);
 
     const { pages, categoryPageMap, totalPages, tocPageIndex } = useMemo(() => {

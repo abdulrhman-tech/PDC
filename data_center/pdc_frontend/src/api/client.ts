@@ -83,7 +83,7 @@ export const productsAPI = {
 }
 
 export const categoriesAPI = {
-    list:           () => api.get('/categories/'),
+    list:           (params?: object) => api.get('/categories/', { params }),
     tree:           () => api.get('/categories/tree/'),
     flat:           () => api.get('/categories/flat/'),
     detail:         (id: number) => api.get(`/categories/${id}/`),
