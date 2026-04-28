@@ -569,6 +569,7 @@ export default function ProductManagementPage() {
     const [showBulkImages, setShowBulkImages] = useState(false)
 
     const canDelete = user?.role === 'super_admin'
+    const canPublish = !!user?.permissions?.can_publish_product
 
     const invalidate = useCallback(() => {
         qc.invalidateQueries({ queryKey: ['products-mgmt'] })
@@ -594,6 +595,57 @@ export default function ProductManagementPage() {
         const ids = deleteTarget === 'bulk' ? selected : [deleteTarget]
         deleteMutation.mutate(ids)
     }, [deleteTarget, selected, deleteMutation])
+
+    /* ── Bulk activate (publish) selected products ─────────────────────
+     *  Uses the existing per-product publish endpoint in parallel via
+     *  allSettled so a failure on one product (e.g. missing approved main
+     *  image, status not eligible) doesn't abort the whole batch. We then
+     *  surface a per-bucket summary toast. */
+    const activateMutation = useMutation({
+        mutationFn: async (ids: number[]) => {
+            const results = await Promise.allSettled(ids.map(id => productsAPI.publish(id)))
+            const succeeded: number[] = []
+            const failed: { id: number; reason: string }[] = []
+            results.forEach((r, i) => {
+                const id = ids[i]
+                if (r.status === 'fulfilled') {
+                    succeeded.push(id)
+                } else {
+                    const detail =
+                        (r.reason as any)?.response?.data?.detail ||
+                        (r.reason as any)?.message ||
+                        'خطأ غير معروف'
+                    failed.push({ id, reason: String(detail) })
+                }
+            })
+            return { succeeded, failed }
+        },
+        onSuccess: ({ succeeded, failed }) => {
+            if (succeeded.length > 0) {
+                toast.success(
+                    succeeded.length === 1
+                        ? 'تم تنشيط المنتج'
+                        : `تم تنشيط ${succeeded.length} منتجات`,
+                )
+            }
+            if (failed.length > 0) {
+                // Show first failure reason as a hint; common cause is "missing main image"
+                const sample = failed[0].reason
+                toast.error(
+                    failed.length === 1
+                        ? `تعذّر التنشيط: ${sample}`
+                        : `تعذّر تنشيط ${failed.length} منتج (${sample})`,
+                )
+            }
+            // Drop only the ones we actually activated, keep failures selected
+            // so the user can fix them and retry without re-selecting.
+            setSelected(prev => prev.filter(id => !succeeded.includes(id)))
+            invalidate()
+        },
+        onError: () => {
+            toast.error('فشل التنشيط، حاول مرة أخرى')
+        },
+    })
 
     const handleFiltersChange = useCallback((f: Filters) => {
         setFilters(f)
@@ -706,6 +758,28 @@ export default function ProductManagementPage() {
                     <span style={{ fontWeight: 600, color: 'var(--color-text-primary)', flex: 1 }}>
                         {selected.length} منتج محدد
                     </span>
+                    {canPublish && (
+                        <button
+                            onClick={() => activateMutation.mutate(selected)}
+                            disabled={activateMutation.isPending}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: 6,
+                                padding: '6px 14px',
+                                border: '1px solid rgba(34,197,94,0.35)',
+                                borderRadius: 7,
+                                background: 'rgba(34,197,94,0.12)',
+                                color: '#22C55E',
+                                cursor: activateMutation.isPending ? 'wait' : 'pointer',
+                                opacity: activateMutation.isPending ? 0.6 : 1,
+                                fontSize: 13, fontFamily: 'inherit',
+                            }}
+                        >
+                            {activateMutation.isPending
+                                ? <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} />
+                                : <CheckCircle2 size={13} />}
+                            تنشيط المحددين
+                        </button>
+                    )}
                     {canDelete && (
                         <button
                             onClick={() => setDeleteTarget('bulk')}
