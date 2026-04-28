@@ -45,6 +45,8 @@ interface ImportResult {
     error_count: number
     updated_count?: number
     format?: string
+    total_rows_in_file?: number
+    data_rows_seen?: number
     created: { row: number; sku: string; name: string }[]
     updated?: { row: number; sku: string; name: string }[]
     errors: { row: number; sku: string; errors: string[] }[]
@@ -236,7 +238,43 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
 
                 {/* Results */}
                 {result && (
-                    <div style={{ border: '1px solid var(--color-border)', borderRadius: 10, overflow: 'hidden' }}>
+                    <div
+                        role="status"
+                        aria-live="polite"
+                        style={{ border: '1px solid var(--color-border)', borderRadius: 10, overflow: 'hidden' }}
+                    >
+                        {/* Row-count summary — surfaces silent truncation issues */}
+                        {typeof result.total_rows_in_file === 'number' && (
+                            <div style={{
+                                padding: '10px 16px',
+                                background: 'var(--color-surface-raised)',
+                                borderBottom: '1px solid var(--color-border)',
+                                fontSize: 12,
+                                color: 'var(--color-text-secondary)',
+                                display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center',
+                            }}>
+                                <span>
+                                    إجمالي الصفوف في الملف:{' '}
+                                    <strong style={{ color: 'var(--color-text-primary)' }}>
+                                        {result.total_rows_in_file.toLocaleString('ar-SA')}
+                                    </strong>
+                                </span>
+                                {typeof result.data_rows_seen === 'number' && (
+                                    <span>
+                                        صفوف بيانات مقروءة:{' '}
+                                        <strong style={{ color: 'var(--color-text-primary)' }}>
+                                            {result.data_rows_seen.toLocaleString('ar-SA')}
+                                        </strong>
+                                    </span>
+                                )}
+                                <span>
+                                    تمت معالجتها:{' '}
+                                    <strong style={{ color: 'var(--color-text-primary)' }}>
+                                        {(result.created_count + (result.updated_count || 0) + result.error_count).toLocaleString('ar-SA')}
+                                    </strong>
+                                </span>
+                            </div>
+                        )}
                         <div style={{ display: 'flex' }}>
                             <div style={{ flex: 1, padding: '14px 16px', background: result.created_count > 0 ? 'rgba(39,174,96,0.08)' : 'var(--color-surface-raised)', borderLeft: '1px solid var(--color-border)' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#27AE60', fontWeight: 700, fontSize: 14 }}>

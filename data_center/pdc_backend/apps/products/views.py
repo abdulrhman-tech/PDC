@@ -532,8 +532,18 @@ class ProductViewSet(viewsets.ModelViewSet):
             except Category.DoesNotExist:
                 return Response({'detail': 'القسم المحدد غير موجود'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # NOTE: We deliberately use read_only=False even though it loads the
+        # whole workbook into memory. Reason: openpyxl's read_only mode trusts
+        # the workbook's `<dimension>` XML metadata, which is frequently stale
+        # in files exported by SAP / BI tools / scripts (e.g. declares "A1:Z250"
+        # while the sheet actually contains 5000 rows). With stale metadata,
+        # iter_rows() in read-only mode silently stops at the declared bound
+        # and rows are lost without any error. Non-read-only mode always uses
+        # the real used range. Since we immediately materialize everything via
+        # list(...) below, read_only mode wasn't giving us a memory benefit
+        # anyway — a typical 5000-row product sheet is well under 50 MB.
         try:
-            wb = openpyxl.load_workbook(excel_file, read_only=True, data_only=True)
+            wb = openpyxl.load_workbook(excel_file, read_only=False, data_only=True)
             ws = wb.active
         except Exception:
             return Response({'detail': 'ملف Excel غير صالح'}, status=status.HTTP_400_BAD_REQUEST)
@@ -657,12 +667,20 @@ class ProductViewSet(viewsets.ModelViewSet):
             except Exception as e:
                 errors.append({'row': row_num, 'sku': sku, 'errors': [str(e)]})
 
+        # Diagnostic counters help operators detect "silent loss" cases
+        # like the one caused by stale workbook <dimension> metadata.
+        total_rows_in_file = len(rows)
+        data_rows_seen = max(0, total_rows_in_file - 2)  # rows 1+2 are header
         log_action(request.user, 'excel_import', None,
-                   f'استيراد Excel: {len(created)} منتج مضاف، {len(errors)} خطأ', request)
+                   f'استيراد Excel: {len(created)} منتج مضاف، '
+                   f'{len(errors)} خطأ، إجمالي صفوف الملف: {total_rows_in_file}',
+                   request)
 
         return Response({
             'created_count': len(created),
             'error_count': len(errors),
+            'total_rows_in_file': total_rows_in_file,
+            'data_rows_seen': data_rows_seen,
             'created': created,
             'errors': errors,
         })
@@ -901,10 +919,14 @@ class ProductViewSet(viewsets.ModelViewSet):
             except Exception as e:
                 errors.append({'row': row_num, 'sku': sku, 'errors': [str(e)]})
 
+        # Diagnostic counters help operators detect "silent loss" cases
+        # like the one caused by stale workbook <dimension> metadata.
+        total_rows_in_file = len(rows)
+        data_rows_seen = max(0, total_rows_in_file - 1)  # row 1 = headers
         log_action(
             request.user, 'excel_import', None,
             f'استيراد SAP: {len(created)} جديد، {len(updated)} محدّث، '
-            f'{len(errors)} خطأ',
+            f'{len(errors)} خطأ، إجمالي صفوف الملف: {total_rows_in_file}',
             request,
         )
 
@@ -913,6 +935,8 @@ class ProductViewSet(viewsets.ModelViewSet):
             'created_count': len(created),
             'updated_count': len(updated),
             'error_count': len(errors),
+            'total_rows_in_file': total_rows_in_file,
+            'data_rows_seen': data_rows_seen,
             'created': created,
             'updated': updated,
             'errors': errors,
