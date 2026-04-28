@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { productsAPI, categoriesAPI } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
-import type { Product, Category } from '@/types'
+import type { Product, CategoryFlat } from '@/types'
 import CatalogPreview from './CatalogPreview'
 
 /* ── خيارات التصميم ──────────────────────────────────── */
@@ -155,26 +155,80 @@ export default function CatalogGeneratorPage() {
             return next
         })
 
-    /* ── جلب البيانات ── */
+    /* ── جلب البيانات ──
+       Note: we intentionally DO NOT filter by status here. The catalog
+       generator is an internal tool — the user picks which products to
+       include — so we surface every product (نشط/مسودة/قيد_المراجعة/…)
+       and let selection drive what ends up in the PDF. We also use the
+       flat category endpoint to get breadcrumb paths + parent links so
+       we can show a hierarchical dropdown and cascade-filter by subtree. */
     const { data: productsData, isLoading } = useQuery({
         queryKey: ['catalog-products'],
-        queryFn: () => productsAPI.list({ page_size: 500, status: 'نشط' }).then(r => r.data),
+        queryFn: () => productsAPI.list({ page_size: 2000 }).then(r => r.data),
     })
     const { data: categoriesData } = useQuery({
-        queryKey: ['categories'],
-        queryFn: () => categoriesAPI.list().then(r => r.data),
+        queryKey: ['categories', 'flat'],
+        queryFn: () => categoriesAPI.flat().then(r => r.data),
     })
 
-    const categories: Category[] = useMemo(
-        () => (categoriesData?.results ?? categoriesData ?? []) as Category[],
+    /* Flat categories list (CategoryFlat[]) — has path_ar, parent, has_products. */
+    const flatCategories: CategoryFlat[] = useMemo(
+        () => (Array.isArray(categoriesData) ? categoriesData : []) as CategoryFlat[],
         [categoriesData],
     )
     const allProducts: Product[] = useMemo(() => productsData?.results ?? [], [productsData])
 
+    /* Build parent → all-descendants map (includes self) so picking a root
+       category cascades to every leaf below it. Without this, selecting
+       a root returned zero products because products live on deep subs. */
+    const descendantsByCategory = useMemo(() => {
+        const childrenOf = new Map<number, number[]>()
+        for (const c of flatCategories) {
+            if (c.parent != null) {
+                const arr = childrenOf.get(c.parent) ?? []
+                arr.push(c.id)
+                childrenOf.set(c.parent, arr)
+            }
+        }
+        const map = new Map<number, Set<number>>()
+        const collect = (rootId: number): Set<number> => {
+            const acc = new Set<number>([rootId])
+            const stack = [rootId]
+            while (stack.length) {
+                const cur = stack.pop()!
+                for (const child of childrenOf.get(cur) ?? []) {
+                    if (!acc.has(child)) {
+                        acc.add(child)
+                        stack.push(child)
+                    }
+                }
+            }
+            return acc
+        }
+        for (const c of flatCategories) map.set(c.id, collect(c.id))
+        return map
+    }, [flatCategories])
+
+    /* Categories shown in the dropdown — only those that actually contain
+       products (directly or via descendants). Avoids drowning the user in
+       1.4k empty branches. Sorted for display: level (roots first), then
+       breadcrumb path. */
+    const dropdownCategories: CategoryFlat[] = useMemo(() => {
+        return flatCategories
+            .filter(c => c.has_products)
+            .sort((a, b) => {
+                if (a.level !== b.level) return a.level - b.level
+                return (a.path_ar || a.name_ar).localeCompare(b.path_ar || b.name_ar, 'ar')
+            })
+    }, [flatCategories])
+
     /* ── فلترة ── */
     const filtered = useMemo(() => {
         let list = allProducts
-        if (catFilter) list = list.filter(p => String(p.category) === catFilter)
+        if (catFilter) {
+            const allowed = descendantsByCategory.get(Number(catFilter)) ?? new Set<number>([Number(catFilter)])
+            list = list.filter(p => p.category != null && allowed.has(Number(p.category)))
+        }
         if (search.trim()) {
             const q = search.trim().toLowerCase()
             list = list.filter(p =>
@@ -182,7 +236,7 @@ export default function CatalogGeneratorPage() {
             )
         }
         return list
-    }, [allProducts, catFilter, search])
+    }, [allProducts, catFilter, search, descendantsByCategory])
 
     /* ── المنتجات المختارة بترتيبها (مع إزالة المكررات) ── */
     const selectedProducts = useMemo(() => {
@@ -576,8 +630,10 @@ export default function CatalogGeneratorPage() {
                                             }}
                                         >
                                             <option value="">كل الأقسام</option>
-                                            {categories.map(c => (
-                                                <option key={c.id} value={String(c.id)}>{c.name_ar}</option>
+                                            {dropdownCategories.map(c => (
+                                                <option key={c.id} value={String(c.id)}>
+                                                    {c.path_ar || c.name_ar}
+                                                </option>
                                             ))}
                                         </select>
                                     )}
@@ -951,7 +1007,7 @@ export default function CatalogGeneratorPage() {
                         <CatalogPreview
                             products={selectedProducts}
                             settings={settings}
-                            categories={categories}
+                            categories={flatCategories}
                         />
                     )}
                 </div>

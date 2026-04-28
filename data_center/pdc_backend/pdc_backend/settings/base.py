@@ -150,7 +150,11 @@ REST_FRAMEWORK = {
         'rest_framework.filters.SearchFilter',
         'rest_framework.filters.OrderingFilter',
     ],
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    # Custom pagination class adds `?page_size=N` query-param support
+    # (default DRF PageNumberPagination ignores it). Capped at 5k so the
+    # catalog generator and similar admin tools can fetch the full set
+    # in one request without unbounded memory risk.
+    'DEFAULT_PAGINATION_CLASS': 'pdc_backend.pagination.StandardResultsSetPagination',
     'PAGE_SIZE': 24,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     # Custom handler returns friendly Arabic JSON for low-level Django

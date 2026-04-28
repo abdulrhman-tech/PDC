@@ -4,13 +4,17 @@
  */
 import { useMemo } from 'react'
 import { Package } from 'lucide-react'
-import type { Product, Category } from '@/types'
+import type { Product, CategoryFlat } from '@/types'
 import type { CatalogSettings } from './CatalogGeneratorPage'
 
 interface Props {
     products: Product[]
     settings: CatalogSettings
-    categories: Category[]
+    /* Flat categories with breadcrumb paths — the component only needs
+       id + name_ar to build a category-name lookup, but we accept the
+       full flat shape so callers can pass the same source of truth used
+       by the dropdown filter. */
+    categories: CategoryFlat[]
 }
 
 const THEMES = {
