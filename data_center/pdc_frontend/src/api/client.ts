@@ -235,22 +235,33 @@ export const decorativeAPI = {
     }) => api.post('/decorative/enhance/', data),
 }
 
+export type SapEnv = 'DEV' | 'PRD'
+
+const envSuffix = (env?: SapEnv | null, leading: '?' | '&' = '?') =>
+    env ? `${leading}env=${env}` : ''
+
 export const sapAPI = {
-    testConnection: () => api.get('/sap/test-connection/'),
-    diagnose: () => api.get('/sap/diagnose/'),
-    hierarchy: () => api.get('/sap/hierarchy/'),
-    syncHierarchy: (dryRun = false) =>
-        api.post(`/sap/hierarchy/sync/${dryRun ? '?dry_run=true' : ''}`),
-    syncHierarchySelected: (codes: string[]) =>
-        api.post('/sap/hierarchy/sync-selected/', { codes }),
-    getProduct: (materialNumber: string) =>
-        api.get(`/sap/product/${encodeURIComponent(materialNumber)}/`),
-    saveProduct: (materialNumber: string) =>
-        api.post(`/sap/product/${encodeURIComponent(materialNumber)}/save/`),
-    getProductsByDate: (dateFrom: string, dateTo: string) =>
-        api.get(`/sap/products/?date_from=${dateFrom}&date_to=${dateTo}`),
-    syncProducts: (products: any[]) =>
-        api.post('/sap/products/sync/', { products }),
+    testConnection: (env?: SapEnv) =>
+        api.get(`/sap/test-connection/${envSuffix(env)}`),
+    diagnose: (env?: SapEnv) =>
+        api.get(`/sap/diagnose/${envSuffix(env)}`),
+    hierarchy: (env?: SapEnv) =>
+        api.get(`/sap/hierarchy/${envSuffix(env)}`),
+    syncHierarchy: (dryRun = false, env?: SapEnv) => {
+        const qs = [dryRun ? 'dry_run=true' : '', env ? `env=${env}` : '']
+            .filter(Boolean).join('&')
+        return api.post(`/sap/hierarchy/sync/${qs ? '?' + qs : ''}`)
+    },
+    syncHierarchySelected: (codes: string[], env?: SapEnv) =>
+        api.post('/sap/hierarchy/sync-selected/', env ? { codes, env } : { codes }),
+    getProduct: (materialNumber: string, env?: SapEnv) =>
+        api.get(`/sap/product/${encodeURIComponent(materialNumber)}/${envSuffix(env)}`),
+    saveProduct: (materialNumber: string, env?: SapEnv) =>
+        api.post(`/sap/product/${encodeURIComponent(materialNumber)}/save/${envSuffix(env)}`),
+    getProductsByDate: (dateFrom: string, dateTo: string, env?: SapEnv) =>
+        api.get(`/sap/products/?date_from=${dateFrom}&date_to=${dateTo}${envSuffix(env, '&')}`),
+    syncProducts: (products: any[], env?: SapEnv) =>
+        api.post('/sap/products/sync/', env ? { products, env } : { products }),
 
     // Scheduled tasks
     listScheduledTasks: () => api.get('/sap/scheduled-tasks/'),

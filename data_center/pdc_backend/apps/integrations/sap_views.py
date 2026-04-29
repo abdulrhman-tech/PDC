@@ -13,16 +13,44 @@ from apps.products.models import Product, ProductStatus
 logger = logging.getLogger(__name__)
 
 
-def _get_sap_service():
+def _resolve_env_from_request(request):
+    """Pull the SAP env from query (`?env=`) or body (`env`).
+
+    Returns (env_value_or_None, error_response_or_None). If the supplied value
+    is invalid, returns a DRF Response with HTTP 400 in Arabic.
+    """
+    from apps.integrations.sap_service import VALID_ENVS
+
+    raw = (
+        request.query_params.get('env')
+        if hasattr(request, 'query_params') else None
+    )
+    if not raw and getattr(request, 'data', None) and isinstance(request.data, dict):
+        raw = request.data.get('env')
+    if raw is None or raw == '':
+        return None, None
+    val = str(raw).strip().upper()
+    if val not in VALID_ENVS:
+        return None, Response(
+            {'error': 'بيئة SAP غير صحيحة. استخدم DEV أو PRD'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return val, None
+
+
+def _get_sap_service(env=None):
     from apps.integrations.sap_service import SAPService
-    return SAPService()
+    return SAPService(env=env)
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsSuperAdmin])
 def test_connection(request):
+    env, err = _resolve_env_from_request(request)
+    if err:
+        return err
     try:
-        svc = _get_sap_service()
+        svc = _get_sap_service(env)
         result = svc.test_connection()
     except Exception as e:
         logger.exception("SAP service init failed")
@@ -37,9 +65,12 @@ def test_connection(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsSuperAdmin])
 def diagnose_connection(request):
+    env, err = _resolve_env_from_request(request)
+    if err:
+        return err
     try:
         from apps.integrations.sap_service import SAPService
-        result = SAPService.diagnose_connection()
+        result = SAPService.diagnose_connection(env=env)
     except Exception as e:
         logger.exception("SAP diagnose failed")
         return Response(
@@ -52,8 +83,11 @@ def diagnose_connection(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsSuperAdmin])
 def get_hierarchy(request):
+    env, err = _resolve_env_from_request(request)
+    if err:
+        return err
     try:
-        svc = _get_sap_service()
+        svc = _get_sap_service(env)
         items = svc.get_hierarchy()
 
         level_counts = {}
@@ -77,8 +111,11 @@ def get_hierarchy(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsSuperAdmin])
 def sync_hierarchy(request):
+    env, err = _resolve_env_from_request(request)
+    if err:
+        return err
     try:
-        svc = _get_sap_service()
+        svc = _get_sap_service(env)
         items = svc.get_hierarchy()
     except Exception as e:
         logger.exception("SAP hierarchy fetch for sync failed")
@@ -200,13 +237,16 @@ def sync_hierarchy(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsSuperAdmin])
 def sync_hierarchy_selected(request):
+    env, err = _resolve_env_from_request(request)
+    if err:
+        return err
     selected_codes = request.data.get('codes', [])
     if not isinstance(selected_codes, list) or not selected_codes:
         return Response({'error': 'يجب تحديد التصنيفات (codes)'},
                         status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        svc = _get_sap_service()
+        svc = _get_sap_service(env)
         items = svc.get_hierarchy()
     except Exception as e:
         logger.exception("SAP fetch for selective sync failed")
@@ -372,8 +412,11 @@ def _save_or_update_product(product_data, user=None):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsSuperAdmin])
 def get_product(request, material_number):
+    env, err = _resolve_env_from_request(request)
+    if err:
+        return err
     try:
-        svc = _get_sap_service()
+        svc = _get_sap_service(env)
         data = svc.get_product(material_number)
         if not data.get('material_number'):
             return Response(
@@ -398,8 +441,11 @@ def get_product(request, material_number):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsSuperAdmin])
 def save_product(request, material_number):
+    env, err = _resolve_env_from_request(request)
+    if err:
+        return err
     try:
-        svc = _get_sap_service()
+        svc = _get_sap_service(env)
         data = svc.get_product(material_number)
         if not data.get('material_number'):
             return Response({'error': 'الصنف غير موجود في SAP'}, status=status.HTTP_404_NOT_FOUND)
@@ -429,13 +475,16 @@ def save_product(request, material_number):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsSuperAdmin])
 def get_products_by_date(request):
+    env, err = _resolve_env_from_request(request)
+    if err:
+        return err
     date_from = request.query_params.get('date_from', '').strip()
     date_to = request.query_params.get('date_to', '').strip()
     if not date_from or not date_to:
         return Response({'error': 'يجب تحديد التاريخين (date_from, date_to)'},
                         status=status.HTTP_400_BAD_REQUEST)
     try:
-        svc = _get_sap_service()
+        svc = _get_sap_service(env)
         items = svc.get_products_by_date(date_from, date_to)
     except Exception as e:
         logger.exception("SAP date range fetch failed")
@@ -465,6 +514,11 @@ MAX_SYNC_BATCH = 500
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsSuperAdmin])
 def sync_products(request):
+    # env is accepted for symmetry with other endpoints but is not used here:
+    # this endpoint stores already-fetched product data into the local DB.
+    _, err = _resolve_env_from_request(request)
+    if err:
+        return err
     products = request.data.get('products', [])
     if not isinstance(products, list) or not products:
         return Response({'error': 'يجب إرسال قائمة الأصناف (products)'},

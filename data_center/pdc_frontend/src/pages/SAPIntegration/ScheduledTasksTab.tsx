@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { sapAPI } from '@/api/client'
+import { sapAPI, type SapEnv } from '@/api/client'
 import {
     Clock, Play, ListChecks, Loader2, RefreshCw, X,
-    CheckCircle2, AlertCircle, Circle, FolderTree, Package,
+    CheckCircle2, AlertCircle, Circle, FolderTree, Package, Server,
 } from 'lucide-react'
 
 type Repeat = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'custom'
@@ -20,6 +20,7 @@ interface ScheduledTask {
     hour: number
     minute: number
     custom_interval_days: number | null
+    sap_env: SapEnv
     last_run_at: string | null
     last_run_status: RunStatus
     last_run_message: string
@@ -315,6 +316,28 @@ export default function ScheduledTasksTab() {
                                         <option key={h.value} value={h.value}>{h.label}</option>
                                     )}
                                 </select>
+                            </div>
+
+                            <div style={fieldRow}>
+                                <label style={labelStyle}>
+                                    <Server size={12} style={{ verticalAlign: 'middle', marginLeft: 4 }} />
+                                    البيئة
+                                </label>
+                                <select
+                                    style={selectStyle}
+                                    value={task.sap_env}
+                                    onChange={e => updateTask(task, { sap_env: e.target.value as SapEnv })}
+                                    disabled={savingId === task.id}
+                                >
+                                    <option value="DEV">DEV — اختبار (8323)</option>
+                                    <option value="PRD">PRD — إنتاج (8325)</option>
+                                </select>
+                                <span
+                                    className={`env-badge ${task.sap_env.toLowerCase()}`}
+                                    style={{ marginRight: 4 }}
+                                >
+                                    {task.sap_env}
+                                </span>
                             </div>
                         </div>
 

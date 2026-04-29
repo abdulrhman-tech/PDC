@@ -37,6 +37,60 @@
     color: #f87171;
 }
 
+.sap-env-switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-surface-raised, rgba(255, 255, 255, 0.03));
+}
+
+.sap-env-switcher-icon {
+    color: var(--color-text-secondary);
+    flex-shrink: 0;
+}
+
+.sap-env-switcher-label {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    font-weight: 600;
+    margin-left: 2px;
+}
+
+.sap-env-switcher-btn {
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    font-family: inherit;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.sap-env-switcher-btn:hover:not(.active) {
+    color: var(--color-text-primary);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.sap-env-switcher-btn.dev.active {
+    background: rgba(99, 102, 241, 0.18);
+    color: #818cf8;
+    border-color: rgba(99, 102, 241, 0.45);
+}
+
+.sap-env-switcher-btn.prd.active {
+    background: rgba(239, 68, 68, 0.18);
+    color: #f87171;
+    border-color: rgba(239, 68, 68, 0.45);
+}
+
 .sap-connection-bar {
     display: flex;
     align-items: center;

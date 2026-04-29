@@ -22,6 +22,7 @@ def _serialize_task(t: ScheduledTask) -> dict:
         'task_type': t.task_type,
         'task_type_display': t.get_task_type_display(),
         'is_active': t.is_active,
+        'sap_env': t.sap_env,
         'repeat': t.repeat,
         'repeat_display': t.get_repeat_display(),
         'day_of_month': t.day_of_month,
@@ -88,6 +89,14 @@ def update_scheduled_task(request, pk: int):
 
     if 'is_active' in data:
         task.is_active = bool(data['is_active'])
+    if 'sap_env' in data:
+        env_val = str(data.get('sap_env') or '').strip().upper()
+        if env_val not in {'DEV', 'PRD'}:
+            return Response(
+                {'error': 'بيئة SAP غير صحيحة. استخدم DEV أو PRD'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        task.sap_env = env_val
     if 'repeat' in data:
         if data['repeat'] not in _VALID_REPEATS:
             return Response({'error': 'قيمة التكرار غير صحيحة'}, status=status.HTTP_400_BAD_REQUEST)

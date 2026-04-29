@@ -1,10 +1,11 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { sapAPI } from '@/api/client'
-import { Link2, RefreshCw, X, Loader2, Stethoscope, FolderTree, Search, Calendar, Clock } from 'lucide-react'
+import { Link2, RefreshCw, X, Loader2, Stethoscope, FolderTree, Search, Calendar, Clock, Server } from 'lucide-react'
 import HierarchyTab from './HierarchyTab'
 import ProductLookupTab from './ProductLookupTab'
 import ProductsByDateTab from './ProductsByDateTab'
 import ScheduledTasksTab from './ScheduledTasksTab'
+import { SapEnvProvider, useSapEnv } from './SapEnvContext'
 import './SAPIntegrationPage.css'
 
 interface ConnectionResult {
@@ -33,6 +34,18 @@ function fmtRelative(iso: string | null): string {
 }
 
 export default function SAPIntegrationPage() {
+    return (
+        <SapEnvProvider>
+            <SAPIntegrationPageInner />
+        </SapEnvProvider>
+    )
+}
+
+function SAPIntegrationPageInner() {
+    const { env, setEnv } = useSapEnv()
+    const envRef = useRef(env)
+    useEffect(() => { envRef.current = env }, [env])
+
     const [connectionStatus, setConnectionStatus] = useState<ConnectionResult | null>(null)
     const [testing, setTesting] = useState(false)
     const [diagnosing, setDiagnosing] = useState(false)
@@ -44,6 +57,13 @@ export default function SAPIntegrationPage() {
         setLastSync(localStorage.getItem(LAST_SYNC_KEY))
     }, [])
 
+    // Clear stale status/diagnostics whenever the user switches env so the badges
+    // and panels never display data fetched against the other server.
+    useEffect(() => {
+        setConnectionStatus(null)
+        setDiagnoseResult(null)
+    }, [env])
+
     const markSynced = useCallback(() => {
         const now = new Date().toISOString()
         localStorage.setItem(LAST_SYNC_KEY, now)
@@ -51,26 +71,36 @@ export default function SAPIntegrationPage() {
     }, [])
 
     const handleTestConnection = useCallback(async () => {
+        const reqEnv = env
         setTesting(true)
         try {
-            const { data } = await sapAPI.testConnection()
+            const { data } = await sapAPI.testConnection(reqEnv)
+            // Discard the response if the user switched env mid-flight; otherwise
+            // a DEV result could end up displayed under the PRD selection.
+            if (envRef.current !== reqEnv) return
             setConnectionStatus(data)
         } catch (e: any) {
+            if (envRef.current !== reqEnv) return
             setConnectionStatus(e?.response?.data || { connected: false, error: 'فشل الاتصال' })
-        } finally { setTesting(false) }
-    }, [])
+        } finally {
+            if (envRef.current === reqEnv) setTesting(false)
+        }
+    }, [env])
 
     const handleDiagnose = useCallback(async () => {
+        const reqEnv = env
         setDiagnosing(true); setDiagnoseResult(null)
         try {
-            const { data } = await sapAPI.diagnose()
+            const { data } = await sapAPI.diagnose(reqEnv)
+            if (envRef.current !== reqEnv) return
             setDiagnoseResult(data)
         } catch (e: any) {
+            if (envRef.current !== reqEnv) return
             setDiagnoseResult({ error: e?.response?.data?.error || 'فشل التشخيص' })
-        } finally { setDiagnosing(false) }
-    }, [])
-
-    const env = connectionStatus?.environment || 'DEV'
+        } finally {
+            if (envRef.current === reqEnv) setDiagnosing(false)
+        }
+    }, [env])
 
     const tabs: { id: TabId; label: string; icon: any }[] = [
         { id: 'hierarchy', label: 'شجرة التصنيفات', icon: FolderTree },
@@ -84,7 +114,21 @@ export default function SAPIntegrationPage() {
             <div className="sap-page-header">
                 <Link2 size={22} strokeWidth={1.5} style={{ color: 'var(--color-gold)' }} />
                 <h1>ربط SAP</h1>
-                <span className={`env-badge ${env.toLowerCase()}`}>{env}</span>
+                <div className="sap-env-switcher" role="group" aria-label="بيئة SAP">
+                    <Server size={14} className="sap-env-switcher-icon" />
+                    <span className="sap-env-switcher-label">البيئة:</span>
+                    {(['DEV', 'PRD'] as const).map(option => (
+                        <button
+                            key={option}
+                            type="button"
+                            className={`sap-env-switcher-btn ${option.toLowerCase()}${env === option ? ' active' : ''}`}
+                            onClick={() => setEnv(option)}
+                            aria-pressed={env === option}
+                        >
+                            {option}
+                        </button>
+                    ))}
+                </div>
                 <span className="sap-last-sync-pill" style={{ marginRight: 'auto' }}>
                     آخر مزامنة: {fmtRelative(lastSync)}
                 </span>

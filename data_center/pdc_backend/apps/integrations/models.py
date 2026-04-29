@@ -25,9 +25,19 @@ class TaskRunStatus(models.TextChoices):
     FAILED = 'failed', 'فشل'
 
 
+class SAPEnvChoice(models.TextChoices):
+    DEV = 'DEV', 'تجريبي (DEV)'
+    PRD = 'PRD', 'إنتاج (PRD)'
+
+
 class ScheduledTask(models.Model):
     task_type = models.CharField(max_length=50, choices=TaskType.choices, unique=True)
     is_active = models.BooleanField(default=False)
+    sap_env = models.CharField(
+        max_length=10,
+        choices=SAPEnvChoice.choices,
+        default=SAPEnvChoice.PRD,
+    )
     repeat = models.CharField(max_length=20, choices=RepeatChoice.choices, default=RepeatChoice.MONTHLY)
     day_of_month = models.PositiveIntegerField(default=1, null=True, blank=True)
     day_of_week = models.PositiveIntegerField(default=0, null=True, blank=True)

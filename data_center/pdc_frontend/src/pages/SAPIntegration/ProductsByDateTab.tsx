@@ -1,5 +1,6 @@
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { sapAPI } from '@/api/client'
+import { useSapEnv } from './SapEnvContext'
 import { Calendar, Loader2, Download, Search, Database, X, Package, CheckCircle2, SkipForward, AlertCircle, RefreshCw } from 'lucide-react'
 
 interface ProductRow {
@@ -39,6 +40,9 @@ interface SyncOutcome {
 interface Props { onSyncComplete?: () => void }
 
 export default function ProductsByDateTab({ onSyncComplete }: Props) {
+    const { env } = useSapEnv()
+    const envRef = useRef(env)
+    useEffect(() => { envRef.current = env }, [env])
     const dd = defaultDates()
     const [dateFrom, setDateFrom] = useState(dd.from)
     const [dateTo, setDateTo] = useState(dd.to)
@@ -62,15 +66,31 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
 
     const handleFetch = useCallback(async () => {
         if (!dateFrom || !dateTo) { setError('يرجى تحديد التاريخين'); return }
+        const reqEnv = env
         setLoading(true); setError(''); setSyncResult(null); setChecked(new Set())
         try {
-            const { data } = await sapAPI.getProductsByDate(dateFrom, dateTo)
+            const { data } = await sapAPI.getProductsByDate(dateFrom, dateTo, reqEnv)
+            // Discard if env switched mid-flight to avoid mixing servers' results.
+            if (envRef.current !== reqEnv) return
             setItems(data.items || [])
             setHasFetched(true)
         } catch (e: any) {
+            if (envRef.current !== reqEnv) return
             setError(e?.response?.data?.error || 'فشل جلب الأصناف')
-        } finally { setLoading(false) }
-    }, [dateFrom, dateTo])
+        } finally {
+            if (envRef.current === reqEnv) setLoading(false)
+        }
+    }, [env, dateFrom, dateTo])
+
+    // Wipe cached results when the env changes — they reflect the prior server.
+    useEffect(() => {
+        setItems([])
+        setHasFetched(false)
+        setError('')
+        setChecked(new Set())
+        setSelected(null)
+        setSyncResult(null)
+    }, [env])
 
     const filtered = useMemo(() => {
         let list = items
@@ -116,6 +136,7 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
     const clearSelection = () => setChecked(new Set())
 
     const runSync = useCallback(async (mode: 'all' | 'selected') => {
+        const reqEnv = env
         setSyncing(true); setSyncError(''); setSyncResult(null)
         setShowUpdated(false); setShowSkipped(false); setShowFailed(false)
 
@@ -133,7 +154,9 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
         }
 
         try {
-            const { data } = await sapAPI.syncProducts(toUpdate)
+            const { data } = await sapAPI.syncProducts(toUpdate, reqEnv)
+            // Discard results if env switched mid-flight.
+            if (envRef.current !== reqEnv) return
             const failed: { sku: string; error: string }[] = (data.errors || []).map((e: any) => ({
                 sku: e.sku || '—', error: e.error || 'فشل',
             }))
@@ -141,12 +164,16 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
             const updatedRows = toUpdate.filter(i => !failedSkus.has(i.material_number))
             setSyncResult({ updated: updatedRows, skipped, failed })
             onSyncComplete?.()
-            const refetch = await sapAPI.getProductsByDate(dateFrom, dateTo)
+            const refetch = await sapAPI.getProductsByDate(dateFrom, dateTo, reqEnv)
+            if (envRef.current !== reqEnv) return
             setItems(refetch.data.items || [])
         } catch (e: any) {
+            if (envRef.current !== reqEnv) return
             setSyncError(e?.response?.data?.error || 'فشلت المزامنة')
-        } finally { setSyncing(false) }
-    }, [items, checked, dateFrom, dateTo, onSyncComplete])
+        } finally {
+            if (envRef.current === reqEnv) setSyncing(false)
+        }
+    }, [env, items, checked, dateFrom, dateTo, onSyncComplete])
 
     useEffect(() => {
         if (!syncOpen) {
@@ -382,16 +409,22 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
                                     style={{ padding: '6px 12px', fontSize: 12 }}
                                     disabled={syncing}
                                     onClick={async () => {
+                                        const reqEnv = env
                                         setSyncing(true); setSyncError('')
                                         try {
-                                            await sapAPI.syncProducts([selected])
+                                            await sapAPI.syncProducts([selected], reqEnv)
+                                            if (envRef.current !== reqEnv) return
                                             onSyncComplete?.()
-                                            const refetch = await sapAPI.getProductsByDate(dateFrom, dateTo)
+                                            const refetch = await sapAPI.getProductsByDate(dateFrom, dateTo, reqEnv)
+                                            if (envRef.current !== reqEnv) return
                                             setItems(refetch.data.items || [])
                                             setSelected(null)
                                         } catch (e: any) {
+                                            if (envRef.current !== reqEnv) return
                                             setSyncError(e?.response?.data?.error || 'فشل التحديث')
-                                        } finally { setSyncing(false) }
+                                        } finally {
+                                            if (envRef.current === reqEnv) setSyncing(false)
+                                        }
                                     }}
                                 >
                                     {syncing ? <Loader2 size={12} className="spin-icon" /> : <RefreshCw size={12} />} تحديث هذا الصنف

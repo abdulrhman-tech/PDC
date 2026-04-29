@@ -1,5 +1,6 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { sapAPI } from '@/api/client'
+import { useSapEnv } from './SapEnvContext'
 import {
     RefreshCw, ChevronLeft, Download, Search,
     X, Loader2, FolderTree, FileText, Database, CheckSquare, Square,
@@ -63,6 +64,9 @@ interface Props {
 }
 
 export default function HierarchyTab({ onSyncComplete }: Props) {
+    const { env } = useSapEnv()
+    const envRef = useRef(env)
+    useEffect(() => { envRef.current = env }, [env])
     const [items, setItems] = useState<SapItem[]>([])
     const [levelCounts, setLevelCounts] = useState<Record<number, number>>({})
     const [totalCount, setTotalCount] = useState(0)
@@ -77,6 +81,19 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
     const [selectedCode, setSelectedCode] = useState<string | null>(null)
     const [selectedForSync, setSelectedForSync] = useState<Set<string>>(new Set())
 
+    // Reset cached data whenever the SAP env changes so we never display
+    // categories from one server while the user thinks they are on the other.
+    useEffect(() => {
+        setItems([])
+        setLevelCounts({})
+        setTotalCount(0)
+        setFetchError('')
+        setHasFetched(false)
+        setExpanded(new Set())
+        setSelectedCode(null)
+        setSelectedForSync(new Set())
+    }, [env])
+
     const [syncModal, setSyncModal] = useState(false)
     const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null)
     const [syncing, setSyncing] = useState(false)
@@ -87,10 +104,13 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
     const [selectedSyncResult, setSelectedSyncResult] = useState<SelectedSyncResult | null>(null)
 
     const handleFetch = useCallback(async () => {
+        const reqEnv = env
         setFetching(true)
         setFetchError('')
         try {
-            const { data } = await sapAPI.hierarchy()
+            const { data } = await sapAPI.hierarchy(reqEnv)
+            // Discard if env switched mid-flight to avoid showing the other server's tree.
+            if (envRef.current !== reqEnv) return
             setItems(data.items || [])
             setLevelCounts(data.level_counts || {})
             setTotalCount(data.total || 0)
@@ -99,41 +119,59 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
             for (const it of (data.items || [])) if (it.level === 1) l1.add(it.code)
             setExpanded(l1)
         } catch (e: any) {
+            if (envRef.current !== reqEnv) return
             setFetchError(e?.response?.data?.error || e?.response?.data?.detail || 'فشل جلب البيانات')
-        } finally { setFetching(false) }
-    }, [])
+        } finally {
+            if (envRef.current === reqEnv) setFetching(false)
+        }
+    }, [env])
 
     const handleSyncPreview = useCallback(async () => {
+        const reqEnv = env
         setSyncing(true); setSyncError(''); setSyncResult(null)
         try {
-            const { data } = await sapAPI.syncHierarchy(true)
+            const { data } = await sapAPI.syncHierarchy(true, reqEnv)
+            if (envRef.current !== reqEnv) return
             setSyncSummary(data.summary); setSyncModal(true)
         } catch (e: any) {
+            if (envRef.current !== reqEnv) return
             setSyncError(e?.response?.data?.error || 'فشل تحضير المزامنة')
-        } finally { setSyncing(false) }
-    }, [])
+        } finally {
+            if (envRef.current === reqEnv) setSyncing(false)
+        }
+    }, [env])
 
     const handleSyncConfirm = useCallback(async () => {
+        const reqEnv = env
         setSyncing(true); setSyncError('')
         try {
-            const { data } = await sapAPI.syncHierarchy(false)
+            const { data } = await sapAPI.syncHierarchy(false, reqEnv)
+            if (envRef.current !== reqEnv) return
             setSyncResult(data.summary)
             onSyncComplete?.()
         } catch (e: any) {
+            if (envRef.current !== reqEnv) return
             setSyncError(e?.response?.data?.error || 'فشلت المزامنة')
-        } finally { setSyncing(false) }
-    }, [onSyncComplete])
+        } finally {
+            if (envRef.current === reqEnv) setSyncing(false)
+        }
+    }, [env, onSyncComplete])
 
     const handleSyncSelected = useCallback(async () => {
+        const reqEnv = env
         setSyncing(true); setSyncError(''); setSelectedSyncResult(null)
         try {
-            const { data } = await sapAPI.syncHierarchySelected(Array.from(selectedForSync))
+            const { data } = await sapAPI.syncHierarchySelected(Array.from(selectedForSync), reqEnv)
+            if (envRef.current !== reqEnv) return
             setSelectedSyncResult(data.summary)
             onSyncComplete?.()
         } catch (e: any) {
+            if (envRef.current !== reqEnv) return
             setSyncError(e?.response?.data?.error || 'فشلت المزامنة')
-        } finally { setSyncing(false) }
-    }, [selectedForSync, onSyncComplete])
+        } finally {
+            if (envRef.current === reqEnv) setSyncing(false)
+        }
+    }, [env, selectedForSync, onSyncComplete])
 
     const tree = useMemo(() => {
         const codeToChildren: Record<string, SapItem[]> = {}

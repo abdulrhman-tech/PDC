@@ -18,12 +18,12 @@ _scheduler_lock = threading.Lock()
 
 # ───────────────────────── core executors ─────────────────────────
 
-def _execute_sync_hierarchy(log):
+def _execute_sync_hierarchy(log, task):
     """Pull hierarchy from SAP and upsert categories."""
     from apps.categories.models import Category
     from apps.integrations.sap_service import SAPService
 
-    svc = SAPService()
+    svc = SAPService(env=getattr(task, 'sap_env', None))
     items = svc.get_hierarchy()
     log.records_processed = len(items)
 
@@ -92,7 +92,7 @@ def _execute_sync_products(log, task):
     date_from = date_from_dt.strftime('%Y-%m-%d')
     date_to = timezone.now().strftime('%Y-%m-%d')
 
-    svc = SAPService()
+    svc = SAPService(env=getattr(task, 'sap_env', None))
     items = svc.get_products_by_date(date_from, date_to)
     log.records_processed = len(items)
 
@@ -145,7 +145,7 @@ def _execute_sync_products(log, task):
 # ───────────────────────── orchestration ─────────────────────────
 
 EXECUTORS = {
-    'sync_hierarchy': lambda log, task: _execute_sync_hierarchy(log),
+    'sync_hierarchy': _execute_sync_hierarchy,
     'sync_products': _execute_sync_products,
 }
 

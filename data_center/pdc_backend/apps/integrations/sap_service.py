@@ -10,10 +10,27 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 
+VALID_ENVS = ('DEV', 'PRD')
+
+
+def resolve_env(env=None):
+    """Normalize an env value, falling back to the configured ACTIVE_ENV.
+
+    Returns one of ('DEV', 'PRD'). Raises ValueError on an unknown value.
+    """
+    if env is None or env == '':
+        return settings.SAP_CONFIG['ACTIVE_ENV']
+    env = str(env).strip().upper()
+    if env not in VALID_ENVS:
+        raise ValueError(f'Invalid SAP environment: {env}')
+    return env
+
+
 class SAPService:
 
-    def __init__(self):
-        env = settings.SAP_CONFIG['ACTIVE_ENV']
+    def __init__(self, env=None):
+        env = resolve_env(env)
+        self.env = env
         self.base_url = settings.SAP_CONFIG[env]['BASE_URL']
         self.client = settings.SAP_CONFIG[env]['CLIENT']
         self.username = settings.SAP_CONFIG['USERNAME']
@@ -88,7 +105,7 @@ class SAPService:
                 'status_code': resp.status_code,
                 'response_time': elapsed,
                 'sample_count': count,
-                'environment': settings.SAP_CONFIG['ACTIVE_ENV'],
+                'environment': self.env,
                 'base_url': self.proxy_base or self.base_url,
                 'mode': 'proxy' if self.proxy_base else 'direct',
             }
@@ -100,7 +117,7 @@ class SAPService:
                 'error': 'فشل الاتصال بالسيرفر',
                 'detail': str(e),
                 'response_time': elapsed,
-                'environment': settings.SAP_CONFIG['ACTIVE_ENV'],
+                'environment': self.env,
                 'base_url': self.proxy_base or self.base_url,
                 'mode': 'proxy' if self.proxy_base else 'direct',
             }
@@ -110,7 +127,7 @@ class SAPService:
                 'connected': False,
                 'error': 'انتهت مهلة الاتصال',
                 'response_time': elapsed,
-                'environment': settings.SAP_CONFIG['ACTIVE_ENV'],
+                'environment': self.env,
                 'base_url': self.proxy_base or self.base_url,
                 'mode': 'proxy' if self.proxy_base else 'direct',
             }
@@ -121,7 +138,7 @@ class SAPService:
                 'error': f'خطأ HTTP: {e.response.status_code}',
                 'detail': e.response.text[:500],
                 'response_time': elapsed,
-                'environment': settings.SAP_CONFIG['ACTIVE_ENV'],
+                'environment': self.env,
                 'base_url': self.proxy_base or self.base_url,
                 'mode': 'proxy' if self.proxy_base else 'direct',
             }
@@ -133,7 +150,7 @@ class SAPService:
                 'error': 'خطأ غير متوقع',
                 'detail': str(e),
                 'response_time': elapsed,
-                'environment': settings.SAP_CONFIG['ACTIVE_ENV'],
+                'environment': self.env,
                 'base_url': self.proxy_base or self.base_url,
                 'mode': 'proxy' if self.proxy_base else 'direct',
             }
@@ -240,9 +257,9 @@ class SAPService:
         return [self._clean_product(item) for item in results]
 
     @staticmethod
-    def diagnose_connection():
+    def diagnose_connection(env=None):
         cfg = settings.SAP_CONFIG
-        env = cfg['ACTIVE_ENV']
+        env = resolve_env(env)
         from urllib.parse import urlparse
         parsed = urlparse(cfg[env]['BASE_URL'])
         host = parsed.hostname

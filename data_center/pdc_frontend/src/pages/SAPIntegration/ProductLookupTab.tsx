@@ -1,5 +1,6 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { sapAPI } from '@/api/client'
+import { useSapEnv } from './SapEnvContext'
 import { Search, Loader2, Plus, Check, Package, Layers } from 'lucide-react'
 
 interface ProductData {
@@ -23,6 +24,9 @@ const fmtDate = (d: string | null) =>
 interface Props { onProductSaved?: () => void }
 
 export default function ProductLookupTab({ onProductSaved }: Props) {
+    const { env } = useSapEnv()
+    const envRef = useRef(env)
+    useEffect(() => { envRef.current = env }, [env])
     const [query, setQuery] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
@@ -32,14 +36,27 @@ export default function ProductLookupTab({ onProductSaved }: Props) {
     const [saveError, setSaveError] = useState('')
     const inputRef = useRef<HTMLInputElement>(null)
 
+    // Drop the previous lookup result when the env changes — its hierarchy/
+    // attributes belong to the other server and would mislead the user.
+    useEffect(() => {
+        setProduct(null)
+        setError('')
+        setSaveMessage('')
+        setSaveError('')
+    }, [env])
+
     const handleSearch = useCallback(async () => {
         const q = query.trim()
         if (!q) return
+        const reqEnv = env
         setLoading(true); setError(''); setProduct(null); setSaveMessage(''); setSaveError('')
         try {
-            const { data } = await sapAPI.getProduct(q)
+            const { data } = await sapAPI.getProduct(q, reqEnv)
+            // Discard if the user switched env mid-flight.
+            if (envRef.current !== reqEnv) return
             setProduct(data)
         } catch (e: any) {
+            if (envRef.current !== reqEnv) return
             const status = e?.response?.status
             if (status === 404) {
                 setError('الصنف غير موجود في SAP. تأكد من الرمز وحاول مرة ثانية.')
@@ -47,24 +64,27 @@ export default function ProductLookupTab({ onProductSaved }: Props) {
                 setError(e?.response?.data?.error || 'فشل البحث عن الصنف')
             }
         } finally {
-            setLoading(false)
+            if (envRef.current === reqEnv) setLoading(false)
         }
-    }, [query])
+    }, [env, query])
 
     const handleSave = useCallback(async () => {
         if (!product) return
+        const reqEnv = env
         setSaving(true); setSaveMessage(''); setSaveError('')
         try {
-            const { data } = await sapAPI.saveProduct(product.material_number)
+            const { data } = await sapAPI.saveProduct(product.material_number, reqEnv)
+            if (envRef.current !== reqEnv) return
             setSaveMessage(data.message || 'تم الحفظ بنجاح')
-            setProduct({ ...product, exists_locally: true })
+            setProduct(prev => prev ? { ...prev, exists_locally: true } : prev)
             onProductSaved?.()
         } catch (e: any) {
+            if (envRef.current !== reqEnv) return
             setSaveError(e?.response?.data?.error || 'فشل حفظ الصنف')
         } finally {
-            setSaving(false)
+            if (envRef.current === reqEnv) setSaving(false)
         }
-    }, [product, onProductSaved])
+    }, [env, product, onProductSaved])
 
     const filledAttrs = product?.attributes.filter(a => a.value) || []
     const emptyAttrs = product?.attributes.filter(a => !a.value) || []
