@@ -25,8 +25,9 @@ def _resolve_env_from_request(request):
         request.query_params.get('env')
         if hasattr(request, 'query_params') else None
     )
-    if not raw and getattr(request, 'data', None) and isinstance(request.data, dict):
-        raw = request.data.get('env')
+    body = getattr(request, 'data', None)
+    if not raw and body is not None and hasattr(body, 'get'):
+        raw = body.get('env')
     if raw is None or raw == '':
         return None, None
     val = str(raw).strip().upper()
