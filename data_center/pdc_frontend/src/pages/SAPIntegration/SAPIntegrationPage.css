@@ -19,7 +19,7 @@
     margin: 0;
 }
 
-.sap-page-header .env-badge {
+.env-badge {
     font-size: 11px;
     font-weight: 600;
     padding: 3px 10px;
@@ -27,14 +27,23 @@
     letter-spacing: 0.5px;
 }
 
-.sap-page-header .env-badge.dev {
+.env-badge.dev {
     background: rgba(99, 102, 241, 0.15);
     color: #818cf8;
 }
 
-.sap-page-header .env-badge.prd {
+.env-badge.prd {
     background: rgba(239, 68, 68, 0.15);
     color: #f87171;
+}
+
+.sap-fetched-from {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    font-weight: 500;
 }
 
 .sap-env-switcher {

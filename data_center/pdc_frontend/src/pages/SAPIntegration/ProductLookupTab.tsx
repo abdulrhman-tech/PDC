@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { sapAPI } from '@/api/client'
+import type { SapEnv } from '@/api/client'
 import { useSapEnv } from './SapEnvContext'
 import { Search, Loader2, Plus, Check, Package, Layers } from 'lucide-react'
 
@@ -31,6 +32,7 @@ export default function ProductLookupTab({ onProductSaved }: Props) {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
     const [product, setProduct] = useState<ProductData | null>(null)
+    const [productEnv, setProductEnv] = useState<SapEnv | null>(null)
     const [saving, setSaving] = useState(false)
     const [saveMessage, setSaveMessage] = useState('')
     const [saveError, setSaveError] = useState('')
@@ -40,6 +42,7 @@ export default function ProductLookupTab({ onProductSaved }: Props) {
     // attributes belong to the other server and would mislead the user.
     useEffect(() => {
         setProduct(null)
+        setProductEnv(null)
         setError('')
         setSaveMessage('')
         setSaveError('')
@@ -49,12 +52,13 @@ export default function ProductLookupTab({ onProductSaved }: Props) {
         const q = query.trim()
         if (!q) return
         const reqEnv = env
-        setLoading(true); setError(''); setProduct(null); setSaveMessage(''); setSaveError('')
+        setLoading(true); setError(''); setProduct(null); setProductEnv(null); setSaveMessage(''); setSaveError('')
         try {
             const { data } = await sapAPI.getProduct(q, reqEnv)
             // Discard if the user switched env mid-flight.
             if (envRef.current !== reqEnv) return
             setProduct(data)
+            setProductEnv(reqEnv)
         } catch (e: any) {
             if (envRef.current !== reqEnv) return
             const status = e?.response?.status
@@ -136,9 +140,17 @@ export default function ProductLookupTab({ onProductSaved }: Props) {
                                 <div className="sap-product-name">{product.description_ar || product.description_en || '—'}</div>
                             </div>
                         </div>
-                        <span className={`sap-product-status ${product.is_active ? 'active' : 'inactive'}`}>
-                            {product.is_active ? '✓ فعال' : '✕ غير فعال'}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            {productEnv && (
+                                <span className="sap-fetched-from">
+                                    آخر جلب:
+                                    <span className={`env-badge ${productEnv.toLowerCase()}`}>{productEnv}</span>
+                                </span>
+                            )}
+                            <span className={`sap-product-status ${product.is_active ? 'active' : 'inactive'}`}>
+                                {product.is_active ? '✓ فعال' : '✕ غير فعال'}
+                            </span>
+                        </div>
                     </div>
 
                     <div className="sap-product-fields">

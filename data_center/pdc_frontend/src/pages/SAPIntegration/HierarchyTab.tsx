@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { sapAPI } from '@/api/client'
+import type { SapEnv } from '@/api/client'
 import { useSapEnv } from './SapEnvContext'
 import {
     RefreshCw, ChevronLeft, Download, Search,
@@ -73,6 +74,7 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
     const [fetching, setFetching] = useState(false)
     const [fetchError, setFetchError] = useState('')
     const [hasFetched, setHasFetched] = useState(false)
+    const [fetchedEnv, setFetchedEnv] = useState<SapEnv | null>(null)
 
     const [search, setSearch] = useState('')
     const [levelFilter, setLevelFilter] = useState<number | null>(null)
@@ -89,6 +91,7 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
         setTotalCount(0)
         setFetchError('')
         setHasFetched(false)
+        setFetchedEnv(null)
         setExpanded(new Set())
         setSelectedCode(null)
         setSelectedForSync(new Set())
@@ -115,6 +118,7 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
             setLevelCounts(data.level_counts || {})
             setTotalCount(data.total || 0)
             setHasFetched(true)
+            setFetchedEnv(reqEnv)
             const l1 = new Set<string>()
             for (const it of (data.items || [])) if (it.level === 1) l1.add(it.code)
             setExpanded(l1)
@@ -344,6 +348,12 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
 
             {hasFetched && (
                 <div className="sap-stats-bar">
+                    {fetchedEnv && (
+                        <span className="sap-fetched-from">
+                            آخر جلب:
+                            <span className={`env-badge ${fetchedEnv.toLowerCase()}`}>{fetchedEnv}</span>
+                        </span>
+                    )}
                     <span className="sap-stat-chip">إجمالي التصنيفات: <span className="stat-value">{totalCount}</span></span>
                     {Object.entries(levelCounts).sort(([a], [b]) => Number(a) - Number(b)).map(([lvl, cnt]) => (
                         <span key={lvl} className="sap-stat-chip">المستوى {lvl}: <span className="stat-value">{cnt}</span></span>

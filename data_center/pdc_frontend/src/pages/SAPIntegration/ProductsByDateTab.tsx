@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { sapAPI } from '@/api/client'
+import type { SapEnv } from '@/api/client'
 import { useSapEnv } from './SapEnvContext'
 import { Calendar, Loader2, Download, Search, Database, X, Package, CheckCircle2, SkipForward, AlertCircle, RefreshCw } from 'lucide-react'
 
@@ -50,6 +51,7 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
     const [hasFetched, setHasFetched] = useState(false)
+    const [fetchedEnv, setFetchedEnv] = useState<SapEnv | null>(null)
     const [search, setSearch] = useState('')
     const [existFilter, setExistFilter] = useState<ExistFilter>('all')
     const [selected, setSelected] = useState<ProductRow | null>(null)
@@ -74,6 +76,7 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
             if (envRef.current !== reqEnv) return
             setItems(data.items || [])
             setHasFetched(true)
+            setFetchedEnv(reqEnv)
         } catch (e: any) {
             if (envRef.current !== reqEnv) return
             setError(e?.response?.data?.error || 'فشل جلب الأصناف')
@@ -86,6 +89,7 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
     useEffect(() => {
         setItems([])
         setHasFetched(false)
+        setFetchedEnv(null)
         setError('')
         setChecked(new Set())
         setSelected(null)
@@ -167,6 +171,7 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
             const refetch = await sapAPI.getProductsByDate(dateFrom, dateTo, reqEnv)
             if (envRef.current !== reqEnv) return
             setItems(refetch.data.items || [])
+            setFetchedEnv(reqEnv)
         } catch (e: any) {
             if (envRef.current !== reqEnv) return
             setSyncError(e?.response?.data?.error || 'فشلت المزامنة')
@@ -249,6 +254,12 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
             {!loading && hasFetched && (
                 <>
                     <div className="sap-stats-bar">
+                        {fetchedEnv && (
+                            <span className="sap-fetched-from">
+                                آخر جلب:
+                                <span className={`env-badge ${fetchedEnv.toLowerCase()}`}>{fetchedEnv}</span>
+                            </span>
+                        )}
                         <span className="sap-stat-chip">إجمالي: <span className="stat-value">{items.length}</span></span>
                         <span className="sap-stat-chip">موجود: <span className="stat-value" style={{ color: '#5cb85c' }}>{existingCount}</span></span>
                         <span className="sap-stat-chip">غير موجود: <span className="stat-value" style={{ color: 'var(--color-text-muted)' }}>{missingCount}</span></span>
