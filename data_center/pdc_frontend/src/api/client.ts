@@ -157,6 +157,7 @@ export const analyticsAPI = {
         brand_id?: number | null
         score_range?: string | null
         inventory_type?: string | null
+        status?: string | null
     }) => api.get('/analytics/completeness/live/', { params }),
 }
 

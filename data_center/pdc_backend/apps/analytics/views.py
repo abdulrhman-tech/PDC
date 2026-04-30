@@ -95,9 +95,16 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
         brand_id       = request.query_params.get('brand_id')
         score_range    = request.query_params.get('score_range')    # low/medium/high/perfect
         inventory_type = request.query_params.get('inventory_type') # دوري / ستوك
+        status_filter  = request.query_params.get('status')         # نشط / مسودة (omit = all)
 
-        # ── Base queryset: active products only ──
-        qs = Product.objects.filter(status='نشط').select_related('category', 'brand')
+        # ── Base queryset: ALL products (active + draft) ──
+        # Historically this was hard-restricted to status='نشط'. In
+        # practice almost every product imported from SAP / Excel sits
+        # as 'مسودة' (Draft), so the old filter hid > 99% of the
+        # catalogue from the dashboard and made the KPIs meaningless.
+        # The status pill in the Reports UI lets users drill into a
+        # specific status when they need to.
+        qs = Product.objects.all().select_related('category', 'brand')
 
         if is_dept_manager:
             qs = qs.filter(category_id__in=managed_ids) if managed_ids else qs.none()
@@ -108,20 +115,25 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(brand_id=brand_id)
         if inventory_type:
             qs = qs.filter(inventory_type=inventory_type)
+        if status_filter:
+            qs = qs.filter(status=status_filter)
 
         # ── Filter options (scoped by dept for managers) ──
-        # Compute from products scoped to dept (but without brand/inv filters applied)
+        # Compute from the same base scope (no status filter), so the
+        # status pills always show all available options with their
+        # real counts. Brand/inv/category counts likewise reflect the
+        # full catalogue — not a status-restricted slice.
         if is_dept_manager:
-            all_active = Product.objects.filter(
-                status='نشط', category_id__in=managed_ids
+            all_scope = Product.objects.filter(
+                category_id__in=managed_ids
             ).select_related('category', 'brand') if managed_ids else Product.objects.none()
         else:
-            all_active = Product.objects.filter(status='نشط').select_related('category', 'brand')
+            all_scope = Product.objects.all().select_related('category', 'brand')
 
         filter_categories = []
         if not is_dept_manager:
             cat_counts: dict[int, int] = {}
-            for p in all_active:
+            for p in all_scope:
                 if p.category_id:
                     cat_counts[p.category_id] = cat_counts.get(p.category_id, 0) + 1
             for cat in Category.objects.filter(pk__in=cat_counts.keys()).order_by('name_ar'):
@@ -129,7 +141,7 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
 
         brand_counts: dict[int, int] = {}
         brand_names: dict[int, str] = {}
-        for p in all_active:
+        for p in all_scope:
             if p.brand_id:
                 brand_counts[p.brand_id] = brand_counts.get(p.brand_id, 0) + 1
                 brand_names[p.brand_id] = p.brand.name_ar or p.brand.name
@@ -139,9 +151,17 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
         ], key=lambda x: -x['count'])
 
         inv_counts: dict[str, int] = {}
-        for p in all_active:
+        for p in all_scope:
             inv_counts[p.inventory_type] = inv_counts.get(p.inventory_type, 0) + 1
         filter_inventory = [{'value': k, 'label': k, 'count': v} for k, v in inv_counts.items()]
+
+        status_counts: dict[str, int] = {}
+        for p in all_scope:
+            status_counts[p.status] = status_counts.get(p.status, 0) + 1
+        filter_statuses = sorted(
+            [{'value': k, 'label': k, 'count': v} for k, v in status_counts.items()],
+            key=lambda x: -x['count'],
+        )
 
         # ── Load filtered products ──
         products = list(qs)
@@ -161,6 +181,7 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
                     'categories': filter_categories,
                     'brands': filter_brands,
                     'inventory_types': filter_inventory,
+                    'statuses': filter_statuses,
                 },
             })
 
@@ -217,6 +238,7 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
                     'categories': filter_categories,
                     'brands': filter_brands,
                     'inventory_types': filter_inventory,
+                    'statuses': filter_statuses,
                 },
             })
 
@@ -297,6 +319,7 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
                 'categories': filter_categories,
                 'brands': filter_brands,
                 'inventory_types': filter_inventory,
+                    'statuses': filter_statuses,
             },
         })
 

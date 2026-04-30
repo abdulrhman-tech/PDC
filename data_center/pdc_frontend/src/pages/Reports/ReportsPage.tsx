@@ -13,6 +13,7 @@ import { BarChart2, RefreshCw, TrendingUp, AlertTriangle, CheckCircle2, Package,
 /* ── Types ─────────────────────────────────────────────────────────────────── */
 interface FilterOption { id: number; name_ar: string; count: number }
 interface InvOption    { value: string; label: string; count: number }
+interface StatusOption { value: string; label: string; count: number }
 
 interface LiveReport {
     total_products: number
@@ -31,6 +32,7 @@ interface LiveReport {
         categories: FilterOption[]
         brands: FilterOption[]
         inventory_types: InvOption[]
+        statuses: StatusOption[]
     }
 }
 
@@ -39,6 +41,7 @@ interface Filters {
     brand_id: number | null
     score_range: string | null
     inventory_type: string | null
+    status: string | null
 }
 
 /* ── Helpers ────────────────────────────────────────────────────────────────── */
@@ -92,6 +95,7 @@ export default function ReportsPage() {
         brand_id: null,
         score_range: null,
         inventory_type: null,
+        status: null,
     })
     const [showFilters, setShowFilters] = useState(false)
 
@@ -104,6 +108,7 @@ export default function ReportsPage() {
             brand_id: filters.brand_id,
             score_range: filters.score_range,
             inventory_type: filters.inventory_type,
+            status: filters.status,
         }).then(r => r.data),
         staleTime: 0,
     })
@@ -111,7 +116,7 @@ export default function ReportsPage() {
     const setFilter = <K extends keyof Filters>(key: K, val: Filters[K]) =>
         setFilters(f => ({ ...f, [key]: f[key] === val ? null : val }))
 
-    const clearFilters = () => setFilters({ category_id: null, brand_id: null, score_range: null, inventory_type: null })
+    const clearFilters = () => setFilters({ category_id: null, brand_id: null, score_range: null, inventory_type: null, status: null })
 
     const r = data
 
@@ -122,7 +127,7 @@ export default function ReportsPage() {
                 <div>
                     <h1 className="page-header-title">تقارير الاكتمال</h1>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
-                        <p className="page-header-sub" style={{ margin: 0 }}>بيانات لحظية مباشرة من المنتجات النشطة</p>
+                        <p className="page-header-sub" style={{ margin: 0 }}>بيانات لحظية مباشرة من كل المنتجات</p>
                         {data?.is_dept_restricted && data.dept_name && (
                             <span style={{
                                 display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -212,6 +217,28 @@ export default function ReportsPage() {
                                 ))}
                             </div>
                         </div>
+
+                        {/* Status (نشط / مسودة) */}
+                        {data?.filter_options?.statuses && data.filter_options.statuses.length > 1 && (
+                            <div style={{ marginTop: 16 }}>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: 8, letterSpacing: 1 }}>الحالة</div>
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    {data.filter_options.statuses.map(opt => (
+                                        <button key={opt.value} onClick={() => setFilter('status', opt.value)}
+                                            style={{
+                                                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                                                cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+                                                background: filters.status === opt.value ? 'rgba(34,197,94,0.15)' : 'var(--color-surface-raised)',
+                                                border: `1px solid ${filters.status === opt.value ? '#22C55E' : 'var(--color-border-strong)'}`,
+                                                color: filters.status === opt.value ? '#22C55E' : 'var(--color-text-secondary)',
+                                            }}>
+                                            {opt.label}
+                                            <span style={{ opacity: 0.55, fontSize: 10, marginRight: 5 }}>({opt.count.toLocaleString('ar')})</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Inventory type */}
                         {data?.filter_options?.inventory_types && data.filter_options.inventory_types.length > 1 && (
@@ -325,6 +352,16 @@ export default function ReportsPage() {
                             <button onClick={() => setFilter('inventory_type', null)} style={{ background: 'none', border: 'none', color: 'var(--color-gold)', cursor: 'pointer', fontSize: 14, padding: 0, lineHeight: 1 }}>×</button>
                         </span>
                     )}
+                    {filters.status && (
+                        <span style={{
+                            display: 'flex', alignItems: 'center', gap: 6,
+                            background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)',
+                            borderRadius: 20, padding: '3px 12px', fontSize: 12, color: '#22C55E',
+                        }}>
+                            الحالة: {filters.status}
+                            <button onClick={() => setFilter('status', null)} style={{ background: 'none', border: 'none', color: '#22C55E', cursor: 'pointer', fontSize: 14, padding: 0, lineHeight: 1 }}>×</button>
+                        </span>
+                    )}
                 </div>
             )}
 
@@ -341,8 +378,8 @@ export default function ReportsPage() {
             {!isLoading && r && r.total_products === 0 && (
                 <div style={{ textAlign: 'center', padding: '80px 0', color: 'var(--color-text-muted)' }}>
                     <BarChart2 size={52} strokeWidth={1} style={{ marginBottom: 16, opacity: 0.4 }} />
-                    <p style={{ fontSize: 15 }}>لا توجد منتجات نشطة بعد</p>
-                    <p style={{ fontSize: 12, marginTop: 6 }}>أضف منتجات وغيّر حالتها إلى "نشط" لعرض التقرير</p>
+                    <p style={{ fontSize: 15 }}>لا توجد منتجات بعد</p>
+                    <p style={{ fontSize: 12, marginTop: 6 }}>أضف منتجات أو خفّف الفلاتر لعرض التقرير</p>
                 </div>
             )}
 
@@ -359,9 +396,9 @@ export default function ReportsPage() {
                             },
                             {
                                 icon: Package, color: '#60A5FA',
-                                label: 'إجمالي المنتجات النشطة',
+                                label: filters.status ? `إجمالي المنتجات (${filters.status})` : 'إجمالي المنتجات',
                                 value: r.total_products.toLocaleString('ar-SA'),
-                                sub: 'منتج نشط',
+                                sub: filters.status ? `منتج ${filters.status}` : 'كل الحالات',
                             },
                             {
                                 icon: CheckCircle2, color: '#22C55E',
@@ -637,7 +674,7 @@ export default function ReportsPage() {
 
                     {/* ── Footer ── */}
                     <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 11, marginTop: 28, paddingBottom: 8 }}>
-                        البيانات لحظية من {r.total_products} منتج نشط · معادلة الاكتمال: وصف (15) + صورة رئيسية (15) + سمات (15) + ماركة (10) + بلد (10) + سعر (10) + اسم EN (10) + رابط (5) + لون (5) + صورة ديكورية (5)
+                        البيانات لحظية من {r.total_products.toLocaleString('ar-SA')} منتج{filters.status ? ` (${filters.status})` : ''} · معادلة الاكتمال: وصف (15) + صورة رئيسية (15) + سمات (15) + ماركة (10) + بلد (10) + سعر (10) + اسم EN (10) + رابط (5) + لون (5) + صورة ديكورية (5)
                     </div>
                 </>
             )}
