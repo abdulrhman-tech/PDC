@@ -580,10 +580,22 @@ def attach_to_product(request, generation_id):
 def bulk_images_upload(request):
     """
     رفع صور جماعي مرتبط بأكواد المنتجات.
-    اصطلاح التسمية:
-      {sku}.jpg          → صورة أولى (gallery)
-      {sku}_1.jpg        → صورة ثانية
-      {sku}_2.jpg        → صورة ثالثة
+
+    اصطلاحان مدعومان (يمكن خلطهما في نفس الطلب):
+
+    1) ملفات مفردة (الاصطلاح القديم):
+         {sku}.jpg          → صورة gallery (order=0)
+         {sku}_1.jpg        → صورة gallery إضافية
+         {sku}_2.jpg        → صورة gallery إضافية
+
+    2) مجلدات (الاصطلاح الجديد):
+         {sku}/1.jpg        → الصورة الرئيسية (image_type=MAIN, order=1)
+         {sku}/2.jpg        → gallery, order=2
+         {sku}/3.jpg        → gallery, order=3
+         {sku}/4.jpg        → gallery, order=4
+       اسم المجلد قد يحتوي امتداد صورة (مثل F19.006-2.jpg) — يُجرَّد تلقائياً.
+       عند وجود 1.jpg، تُخفَّض الصورة الرئيسية القديمة للمنتج (إن وجدت)
+       إلى gallery قبل تثبيت الجديدة كرئيسية.
     """
     files = request.FILES.getlist('files')
     if not files:
@@ -592,67 +604,138 @@ def bulk_images_upload(request):
     if len(files) > 200:
         return Response({'error': 'الحد الأقصى 200 صورة في الطلب الواحد'}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Optional parallel list of relative paths from the client (folder mode).
+    # When supplied it MUST be the same length as `files` so we can zip them.
+    relative_paths = request.POST.getlist('relative_paths')
+    if relative_paths and len(relative_paths) != len(files):
+        return Response(
+            {'error': 'عدم تطابق بين الملفات والمسارات المرسلة'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     import re
 
-    def parse_sku(filename: str) -> str:
-        name = filename.rsplit('.', 1)[0] if '.' in filename else filename
+    IMG_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
+
+    def strip_image_ext(name: str) -> str:
+        lower = name.lower()
+        for ext in IMG_EXTS:
+            if lower.endswith(ext):
+                return name[: -len(ext)]
+        return name
+
+    def parse_sku_from_filename(filename: str) -> str:
+        """Parse SKU from a loose filename like SKU.jpg or SKU_2.jpg."""
+        name = strip_image_ext(filename)
         match = re.match(r'^(.+)_(\d+)$', name)
         if match:
             return match.group(1)
         return name
 
+    def parse_relative_path(rel_path: str, fallback_filename: str):
+        """
+        Returns a tuple (sku, image_type, order) given a relative path string.
+
+        Folder mode (rel_path contains a '/'):
+          - sku  = strip_image_ext(first segment)
+          - file = last segment, e.g. '1.jpg'
+          - if file's stem is an integer N:
+                N == 1 → (sku, MAIN, 1)
+                N >  1 → (sku, GALLERY, N)
+          - otherwise: (sku, GALLERY, 0)
+
+        Loose mode (no '/'): legacy behavior, GALLERY with order=0.
+        """
+        rel_path = (rel_path or '').strip().replace('\\', '/')
+        if '/' in rel_path:
+            parts = [p for p in rel_path.split('/') if p]
+            if len(parts) >= 2:
+                folder_name = parts[0]
+                file_name = parts[-1]
+                sku = strip_image_ext(folder_name)
+                stem = strip_image_ext(file_name)
+                try:
+                    n = int(stem)
+                    if n == 1:
+                        return sku, ImageType.MAIN, 1
+                    return sku, ImageType.GALLERY, n
+                except ValueError:
+                    return sku, ImageType.GALLERY, 0
+        # loose / no folder
+        return parse_sku_from_filename(fallback_filename), ImageType.GALLERY, 0
+
     matched = []
     unmatched = []
     errors = []
 
-    for file in files:
+    for idx, file in enumerate(files):
         fname = file.name
-        sku = parse_sku(fname)
+        rel_path = relative_paths[idx] if relative_paths else fname
+
+        sku, image_type, order = parse_relative_path(rel_path, fname)
 
         try:
             product = Product.objects.select_related('category').get(sku=sku)
         except Product.DoesNotExist:
-            unmatched.append({'filename': fname, 'parsed_sku': sku})
+            unmatched.append({
+                'filename': rel_path,
+                'parsed_sku': sku,
+            })
             continue
 
         allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
         if file.content_type not in allowed_types:
-            errors.append({'filename': fname, 'error': f'نوع الملف غير مدعوم: {file.content_type}'})
+            errors.append({'filename': rel_path, 'error': f'نوع الملف غير مدعوم: {file.content_type}'})
             continue
 
         if file.size > 10 * 1024 * 1024:
-            errors.append({'filename': fname, 'error': 'حجم الملف أكبر من 10 ميجابايت'})
+            errors.append({'filename': rel_path, 'error': 'حجم الملف أكبر من 10 ميجابايت'})
             continue
 
         ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else 'jpg'
         unique_name = f"{uuid.uuid4().hex[:10]}.{ext}"
         category_slug = product.category.slug if hasattr(product.category, 'slug') else str(product.category_id)
-        r2_key = f"products/{category_slug}/{product.sku}/gallery/{unique_name}"
+        sub_dir = 'main' if image_type == ImageType.MAIN else 'gallery'
+        r2_key = f"products/{category_slug}/{product.sku}/{sub_dir}/{unique_name}"
 
         try:
             file_bytes = file.read()
             r2_url = upload_bytes(r2_key, file_bytes, content_type=file.content_type)
         except Exception as e:
-            logger.error(f"Bulk upload R2 error for {fname}: {e}")
-            errors.append({'filename': fname, 'error': 'فشل رفع الملف إلى التخزين'})
+            logger.error(f"Bulk upload R2 error for {rel_path}: {e}")
+            errors.append({'filename': rel_path, 'error': 'فشل رفع الملف إلى التخزين'})
             continue
+
+        # If we're inserting a new MAIN, demote ANY existing MAIN of this
+        # product to GALLERY first. Done before each insert (not just once
+        # per product) so that if the same SKU appears with multiple 1.jpg
+        # entries in the same request — e.g. two folders that strip to the
+        # same SKU — only the LAST one remains MAIN ("last one wins").
+        if image_type == ImageType.MAIN:
+            ProductImage.objects.filter(
+                product=product,
+                image_type=ImageType.MAIN,
+            ).update(image_type=ImageType.GALLERY)
 
         img = ProductImage.objects.create(
             product=product,
-            image_type=ImageType.GALLERY,
+            image_type=image_type,
             r2_key=r2_key,
             r2_url=r2_url,
             original_filename=fname,
             file_size_kb=round(file.size / 1024),
             status=ImageStatus.APPROVED,
+            order=order,
             uploaded_by=request.user,
         )
         matched.append({
-            'filename': fname,
+            'filename': rel_path,
             'sku': sku,
             'product_name': product.product_name_ar,
             'image_id': img.id,
             'r2_url': r2_url,
+            'image_type': image_type,
+            'order': order,
         })
 
     return Response({
