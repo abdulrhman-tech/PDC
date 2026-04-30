@@ -33,13 +33,26 @@ export function CategoryTreeSelect({ value, onChange, placeholder = 'اختر ا
 
     const selected = cats.find(c => c.id === Number(value))
 
-    const filtered = search.trim()
-        ? cats.filter(c =>
-            c.name_ar.includes(search) ||
-            c.name_en.toLowerCase().includes(search.toLowerCase()) ||
-            c.code.toLowerCase().includes(search.toLowerCase())
-        )
+    const VISIBLE_LIMIT = 250
+    const filteredAll = search.trim()
+        ? cats.filter(c => {
+            const q = search.toLowerCase()
+            return (
+                c.name_ar.includes(search) ||
+                c.name_en.toLowerCase().includes(q) ||
+                c.code.toLowerCase().includes(q) ||
+                (c.path_ar || '').includes(search) ||
+                (c.path_en || '').toLowerCase().includes(q)
+            )
+        })
         : cats
+    let filtered = filteredAll.slice(0, VISIBLE_LIMIT)
+    // Make sure the currently selected category is always discoverable in the
+    // dropdown even when it would otherwise fall outside the visible slice.
+    if (selected && !filtered.some(c => c.id === selected.id) && filteredAll.some(c => c.id === selected.id)) {
+        filtered = [selected, ...filtered.slice(0, VISIBLE_LIMIT - 1)]
+    }
+    const hiddenCount = Math.max(0, filteredAll.length - filtered.length)
 
     useEffect(() => {
         const handler = (e: MouseEvent) => {
@@ -128,6 +141,11 @@ export function CategoryTreeSelect({ value, onChange, placeholder = 'اختر ا
                                 لا توجد نتائج
                             </div>
                         )}
+                        {!search.trim() && cats.length > VISIBLE_LIMIT && (
+                            <div style={{ padding: '8px 12px', fontSize: 11, color: 'var(--color-text-muted)', borderBottom: '1px dashed var(--color-border)', background: 'rgba(200,168,75,0.04)' }}>
+                                يعرض {VISIBLE_LIMIT} من أصل {cats.length} تصنيف — اكتب للبحث في الكل
+                            </div>
+                        )}
                         {filtered.map(cat => {
                             const isSelected = cat.id === Number(value)
                             const lColor = LEVEL_COLORS[cat.level] ?? '#C8A84B'
@@ -156,13 +174,20 @@ export function CategoryTreeSelect({ value, onChange, placeholder = 'اختر ا
                                         fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, flexShrink: 0,
                                         color: lColor, background: `${lColor}18`,
                                     }}>M{cat.level}</span>
-                                    {/* Name */}
-                                    <span style={{ flex: 1, opacity: cat.is_active ? 1 : 0.5 }}>
-                                        {cat.name_ar}
-                                        {cat.name_en && (
-                                            <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginRight: 6, fontFamily: 'var(--font-latin)', direction: 'ltr', display: 'inline' }}>
-                                                {cat.name_en}
-                                            </span>
+                                    {/* Name + parent path for disambiguation */}
+                                    <span style={{ flex: 1, opacity: cat.is_active ? 1 : 0.5, minWidth: 0 }}>
+                                        <div style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {cat.name_ar}
+                                            {cat.name_en && cat.name_en !== cat.name_ar && (
+                                                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginRight: 6, fontFamily: 'var(--font-latin)', direction: 'ltr', display: 'inline' }}>
+                                                    {cat.name_en}
+                                                </span>
+                                            )}
+                                        </div>
+                                        {cat.level > 1 && cat.path_ar && cat.path_ar !== cat.name_ar && (
+                                            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {cat.path_ar.replace(/ \/ [^/]+$/, '')}
+                                            </div>
                                         )}
                                     </span>
                                     {/* Not active */}
@@ -172,6 +197,11 @@ export function CategoryTreeSelect({ value, onChange, placeholder = 'اختر ا
                                 </button>
                             )
                         })}
+                        {hiddenCount > 0 && (
+                            <div style={{ padding: '8px 12px', fontSize: 11, color: 'var(--color-text-muted)', textAlign: 'center', borderTop: '1px dashed var(--color-border)' }}>
+                                + {hiddenCount} نتيجة إضافية — حدّد البحث أكثر
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

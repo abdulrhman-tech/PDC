@@ -13,6 +13,7 @@ import { toast } from 'react-toastify'
 import type { Product } from '@/types'
 import ProductLogsModal from '@/components/ProductLogsModal/ProductLogsModal'
 import BulkImageUploadModal from '@/components/BulkImageUploadModal/BulkImageUploadModal'
+import { CategoryTreeSelect } from '@/components/CategoryTreeSelect/CategoryTreeSelect'
 
 const PAGE_SIZE = 24
 
@@ -533,9 +534,8 @@ function DeleteModal({ count, onConfirm, onCancel, loading }: {
 interface Filters { search: string; category: string; status: string; inventory_type: string }
 const emptyFilters = (): Filters => ({ search: '', category: '', status: '', inventory_type: '' })
 
-function FilterBar({ filters, categories, onChange, onReset }: {
+function FilterBar({ filters, onChange, onReset }: {
     filters: Filters
-    categories: Category[]
     onChange: (f: Filters) => void
     onReset: () => void
 }) {
@@ -560,11 +560,14 @@ function FilterBar({ filters, categories, onChange, onReset }: {
                 />
             </div>
 
-            {/* Category */}
-            <select style={selStyle} value={filters.category} onChange={e => onChange({ ...filters, category: e.target.value })}>
-                <option value="">كل التصنيفات</option>
-                {categories.map(c => <option key={c.id} value={c.slug}>{c.name_ar}</option>)}
-            </select>
+            {/* Category — searchable tree picker */}
+            <div style={{ flex: '1 1 240px', minWidth: 220, maxWidth: 360 }}>
+                <CategoryTreeSelect
+                    value={filters.category || null}
+                    onChange={(id) => onChange({ ...filters, category: id ? String(id) : '' })}
+                    placeholder="كل التصنيفات"
+                />
+            </div>
 
             {/* Status */}
             <select style={selStyle} value={filters.status} onChange={e => onChange({ ...filters, status: e.target.value })}>
@@ -780,7 +783,6 @@ export default function ProductManagementPage() {
             {/* Filters */}
             <FilterBar
                 filters={filters}
-                categories={categories}
                 onChange={handleFiltersChange}
                 onReset={handleReset}
             />
