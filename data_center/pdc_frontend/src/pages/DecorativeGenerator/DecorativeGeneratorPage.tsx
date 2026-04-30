@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { getTemplatesForMode, type RoomTemplate } from './roomTemplates'
 import MultiProductGenerator from './MultiProductGenerator'
+import DualSameCategoryGenerator from './DualSameCategoryGenerator'
 import ProductImageEnhancer from './ProductImageEnhancer'
 import GenerationsGallery from './GenerationsGallery'
 import './DecorativeGeneratorPage.css'
@@ -174,13 +175,17 @@ const MODE_INFO: Record<GenerationMode, { icon: typeof Layers; label: string; de
 
 type WizardStep = 'type_select' | 'source' | 'analysis' | 'settings' | 'confirm' | 'generating' | 'result'
 
-type TopMode = 'choose' | 'single' | 'multi' | 'enhance' | 'gallery'
+type TopMode = 'choose' | 'single' | 'multi' | 'dual' | 'enhance' | 'gallery'
 
 export default function DecorativeGeneratorPage() {
     const [topMode, setTopMode] = useState<TopMode>('choose')
 
     if (topMode === 'multi') {
         return <MultiProductGenerator onBack={() => setTopMode('choose')} />
+    }
+
+    if (topMode === 'dual') {
+        return <DualSameCategoryGenerator onBack={() => setTopMode('choose')} />
     }
 
     if (topMode === 'single') {
@@ -232,6 +237,16 @@ export default function DecorativeGeneratorPage() {
                         <div className="mode-chooser-title">مشهد متعدد المنتجات</div>
                         <div className="mode-chooser-desc">
                             ادمج عدة منتجات في مشهد واحد متكامل — أرضية مع جدار مع أثاث في غرفة واحدة
+                        </div>
+                    </button>
+
+                    <button className="mode-chooser-card" onClick={() => setTopMode('dual')}>
+                        <div className="mode-chooser-icon mode-chooser-icon--dual">
+                            <LayoutGrid size={48} />
+                        </div>
+                        <div className="mode-chooser-title">دمج خامتين من نفس الفئة</div>
+                        <div className="mode-chooser-desc">
+                            اجمع نوعين من نفس الفئة (بلاط، باركيه، أرضيات مطاطية...) على سطح واحد بنمط شطرنج أو نصفين أو خطوط أو إطار
                         </div>
                     </button>
 

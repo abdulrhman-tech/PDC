@@ -876,3 +876,125 @@ def build_multi_product_prompt(slots: list[dict], selections: dict, custom_notes
         prompt += f', {custom_notes.strip()}'
 
     return prompt
+
+
+# ─── Dual Same-Category Mode ─────────────────────────────────────────────────
+# Two products of the SAME category mixed into a single surface (floor/wall)
+# using one of four mixing patterns: checkerboard, half_split, stripes,
+# border_center.
+
+DUAL_PATTERN_INSTRUCTIONS = {
+    'checkerboard': (
+        "CHECKERBOARD PATTERN — alternate the two materials in a precise "
+        "checkerboard layout: square tiles/units of equal size arranged so that "
+        "every adjacent unit on all four sides is the OTHER material. "
+        "Material A occupies the dark squares of a chessboard; Material B "
+        "occupies the light squares. Joints between units are uniform, "
+        "perfectly aligned both horizontally and vertically, professional "
+        "installation. The two materials must alternate across the ENTIRE "
+        "surface area edge-to-edge — never two of the same material adjacent."
+    ),
+    'half_split': (
+        "HALF AND HALF SPLIT — the surface is divided into TWO equal halves. "
+        "Material A covers exactly one half of the surface; Material B covers "
+        "the other half. The dividing line is a clean straight transition "
+        "(perpendicular to the camera, dividing left-half from right-half "
+        "for floors, or top-half from bottom-half for walls). The boundary "
+        "is a crisp professional joint with no overlap and no blending — "
+        "the two halves remain visually distinct yet meet seamlessly."
+    ),
+    'stripes': (
+        "ALTERNATING STRIPES — the surface is covered with parallel linear "
+        "bands/stripes of equal width that alternate between Material A and "
+        "Material B in a strict A-B-A-B-A-B sequence across the ENTIRE "
+        "surface. Stripes run from one edge to the opposite edge in a "
+        "single direction (parallel to the longer wall for floors, "
+        "horizontal for walls). Each stripe is the same width; transitions "
+        "between stripes are clean straight joints; no curves, no diagonals."
+    ),
+    'border_center': (
+        "BORDER AND CENTER INSET — Material A forms a continuous outer "
+        "BORDER/FRAME around the perimeter of the surface (uniform width on "
+        "all four sides, like a picture frame). Material B fills the entire "
+        "INTERIOR/CENTER area inside that border as one unified inset zone. "
+        "The transition between border and center is a clean rectangular "
+        "joint, perfectly straight on all four sides, professional mitred "
+        "or butt joints at corners. Material A surrounds; Material B is "
+        "the central feature."
+    ),
+}
+
+DUAL_SURFACE_PHRASE = {
+    'floor': 'covers the ENTIRE floor surface wall-to-wall',
+    'wall': 'covers the main visible wall surface from edge to edge',
+}
+
+
+def build_dual_same_category_prompt(
+    slots: list[dict],
+    pattern: str,
+    surface: str,
+    selections: dict,
+    custom_notes: str = '',
+) -> str:
+    """Build a generation prompt for two products of the same category
+    combined into one surface using a specific mixing pattern."""
+    scene = _scene_desc(selections)
+    lcm = _light_camera_mood(selections)
+    q = _quality(selections)
+
+    pattern_desc = DUAL_PATTERN_INSTRUCTIONS.get(
+        pattern, DUAL_PATTERN_INSTRUCTIONS['checkerboard']
+    )
+    surface_phrase = DUAL_SURFACE_PHRASE.get(surface, DUAL_SURFACE_PHRASE['floor'])
+
+    # Describe the two materials (A = first slot, B = second slot)
+    material_lines = []
+    labels = ['A', 'B']
+    for i, slot in enumerate(slots[:2]):
+        analysis = slot.get('analysis', {})
+        desc = analysis.get('description_en', 'building material product')
+        product_type = analysis.get('product_type_en', '') or analysis.get('product_type', '')
+        surface_finish = analysis.get('surface_en', '') or analysis.get('surface', '')
+        color = analysis.get('color_en', '') or analysis.get('color', '')
+
+        type_info = f" ({product_type})" if product_type else ''
+        surface_info = f", {surface_finish} finish" if surface_finish else ''
+        color_info = f", {color}" if color else ''
+
+        material_lines.append(
+            f"Material {labels[i]} (Reference Image {i + 1}){type_info}{color_info}{surface_info}. "
+            f"Description: {desc}. "
+            f"Material {labels[i]} must appear IDENTICAL to its reference image — "
+            f"ZERO variation in color, texture, pattern, or surface finish. "
+            f"Do NOT recolor, restyle, blend, or reinterpret it."
+        )
+
+    materials_block = '\n'.join(material_lines)
+    other_surface = 'wall' if surface == 'floor' else 'floor'
+
+    prompt = (
+        f"{UNIVERSAL_OPENER} "
+        f"Create a cohesive interior design scene in a {scene}. "
+        f"This scene combines TWO different materials of the SAME category "
+        f"into ONE single {surface} surface using a specific mixing pattern:\n\n"
+        f"{materials_block}\n\n"
+        f"COMBINED SURFACE: A single mixed {surface} {surface_phrase}, made of "
+        f"BOTH Material A and Material B together. The {other_surface}s and the "
+        f"rest of the room must be neutral/blank so the mixed {surface} is the "
+        f"clear focus.\n\n"
+        f"MIXING PATTERN: {pattern_desc}\n\n"
+        f"CRITICAL RULES: Both materials must coexist on the same {surface} with "
+        f"perfectly aligned joints, consistent scale, and professional "
+        f"installation quality. Material A must look exactly like its reference "
+        f"image; Material B must look exactly like its reference image; do NOT "
+        f"average, blend, recolor, or merge their appearances. The pattern must "
+        f"be clearly readable across the entire {surface}. "
+        f"{lcm} {q}, wide-angle architectural lens showing the full {surface} "
+        f"coverage and the mixing pattern clearly. {UNIVERSAL_FOOTER}"
+    )
+
+    if custom_notes and custom_notes.strip():
+        prompt += f' Additional notes: {custom_notes.strip()}.'
+
+    return prompt

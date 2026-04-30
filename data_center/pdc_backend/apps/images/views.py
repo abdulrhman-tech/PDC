@@ -13,6 +13,8 @@ from .serializers import (
     GenerateDecorativeSerializer,
     AnalyzeMultiSerializer,
     GenerateMultiSerializer,
+    AnalyzeDualSerializer,
+    GenerateDualSerializer,
     EnhanceImageSerializer,
 )
 from apps.integrations.openai_service import analyze_product_image
@@ -21,6 +23,7 @@ from apps.integrations.kie_ai_service import (
     get_task_status,
     build_prompt,
     build_multi_product_prompt,
+    build_dual_same_category_prompt,
     build_enhance_prompt,
     NEGATIVE_PROMPT,
     ENHANCE_NEGATIVE_PROMPT,
@@ -858,6 +861,207 @@ def generate_multi(request):
         gen.save()
     except Exception as e:
         logger.error(f"Kie.ai multi-product task creation failed: {e}")
+        gen.status = DecorativeGenerationStatus.FAILED
+        gen.error_message = str(e)
+        gen.save()
+        return Response(
+            {'error': f'فشل إنشاء المهمة: {e}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(DecorativeGenerationSerializer(gen).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsSuperAdmin])
+def analyze_dual(request):
+    """Analyze 2 products of the same category for dual-surface mixing."""
+    ser = AnalyzeDualSerializer(data=request.data)
+    ser.is_valid(raise_exception=True)
+
+    surface = ser.validated_data['surface']
+    slots = ser.validated_data['slots']
+
+    if len(slots) != 2:
+        return Response(
+            {'error': 'يجب اختيار منتجين بالضبط لهذا الوضع'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    for slot in slots:
+        pid = slot.get('product_id')
+        if pid is not None and not Product.objects.filter(id=pid).exists():
+            return Response(
+                {'error': f'المنتج برقم {pid} غير موجود'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    analyzed_slots = []
+    for idx, slot in enumerate(slots):
+        image_url = slot['image_url']
+        material_subtype_hint = slot.get('material_subtype_hint', '')
+        generation_mode_hint = slot.get('generation_mode_hint', '')
+
+        try:
+            analysis = analyze_product_image(
+                image_url,
+                material_subtype_hint=material_subtype_hint,
+                generation_mode_hint=generation_mode_hint,
+            )
+        except Exception as e:
+            logger.error(f"Dual-mode vision analysis failed for {image_url[:60]}: {e}")
+            return Response(
+                {'error': f'فشل تحليل صورة المنتج: {e}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        analyzed_slots.append({
+            'slot_index': idx,
+            'role': 'pattern_a' if idx == 0 else 'pattern_b',
+            'surface': surface,
+            'image_url': image_url,
+            'product_id': slot.get('product_id'),
+            'material_subtype_hint': material_subtype_hint,
+            'generation_mode_hint': generation_mode_hint,
+            'analysis': analysis,
+        })
+
+    # Suggest a space type from the surface choice + analyses (best-effort)
+    PLACEMENT_TO_SPACE = {
+        'bathroom': 'bathroom',
+        'kitchen': 'kitchen',
+        'bedroom': 'bedroom',
+        'living_room': 'living_room',
+        'outdoor': 'outdoor',
+        'pool_area': 'outdoor',
+        'entrance': 'lobby',
+        'office': 'office',
+    }
+    space_votes: dict[str, int] = {}
+    for slot in analyzed_slots:
+        placement = slot.get('analysis', {}).get('recommended_placement', '')
+        space = PLACEMENT_TO_SPACE.get(placement, '')
+        if space:
+            space_votes[space] = space_votes.get(space, 0) + 1
+    suggested_space_type = max(space_votes, key=space_votes.get) if space_votes else ''
+
+    first_image = analyzed_slots[0]['image_url']
+    gen = DecorativeGeneration.objects.create(
+        source_image_url=first_image,
+        created_by=request.user,
+        status=DecorativeGenerationStatus.ANALYZED,
+        is_multi_product=True,
+        multi_product_data=analyzed_slots,
+        vision_analysis=analyzed_slots[0].get('analysis', {}),
+        # Mark this generation as a dual-same-category scene so the
+        # generate step can route to the correct prompt builder.
+        generation_settings={'dual_mode': True, 'surface': surface},
+    )
+
+    resp_data = DecorativeGenerationSerializer(gen).data
+    resp_data['suggested_space_type'] = suggested_space_type
+    resp_data['surface'] = surface
+    return Response(resp_data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@permission_classes([IsSuperAdmin])
+def generate_dual(request):
+    """Generate a dual-same-category mixed-surface scene."""
+    ser = GenerateDualSerializer(data=request.data)
+    ser.is_valid(raise_exception=True)
+
+    data = ser.validated_data
+    gen_id = data.pop('generation_id')
+    pattern = data.pop('pattern')
+
+    try:
+        gen = DecorativeGeneration.objects.get(id=gen_id, created_by=request.user)
+    except DecorativeGeneration.DoesNotExist:
+        return Response({'error': 'السجل غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+
+    if not gen.is_multi_product or not (gen.generation_settings or {}).get('dual_mode'):
+        return Response(
+            {'error': 'هذا السجل ليس مشهداً بنمط دمج خامتين'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if gen.status not in (DecorativeGenerationStatus.ANALYZED, DecorativeGenerationStatus.FAILED):
+        return Response(
+            {'error': 'لا يمكن التوليد في هذه الحالة'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    slots = list(gen.multi_product_data or [])
+    if len(slots) != 2:
+        return Response(
+            {'error': 'يجب أن يحتوي المشهد على منتجين بالضبط'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Preserve A/B identity: sort by explicit slot_index when present,
+    # falling back to original positional order for backward compatibility.
+    if all(isinstance(s.get('slot_index'), int) for s in slots):
+        slots.sort(key=lambda s: s['slot_index'])
+
+    surface = (gen.generation_settings or {}).get('surface', 'floor')
+
+    # Apply slot overrides if any (same shape as multi)
+    slot_overrides = data.pop('slot_overrides', [])
+    for override in slot_overrides:
+        idx = override.pop('index', -1)
+        if 0 <= idx < len(slots):
+            analysis = slots[idx].get('analysis', {})
+            for key, value in override.items():
+                if value:
+                    analysis[key] = value
+            slots[idx]['analysis'] = analysis
+    if slot_overrides:
+        gen.multi_product_data = slots
+        gen.save(update_fields=['multi_product_data'])
+
+    image_urls = [s.get('image_url') for s in slots if s.get('image_url')]
+    if len(image_urls) != 2:
+        return Response(
+            {'error': 'بيانات المنتجات غير مكتملة — أعد المحاولة'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    custom_notes = data.pop('custom_notes', '')
+
+    prompt = build_dual_same_category_prompt(
+        slots=slots,
+        pattern=pattern,
+        surface=surface,
+        selections=data,
+        custom_notes=custom_notes,
+    )
+
+    # Persist settings — preserve dual_mode + surface markers
+    settings_blob = dict(data)
+    settings_blob['dual_mode'] = True
+    settings_blob['surface'] = surface
+    settings_blob['pattern'] = pattern
+    gen.generation_settings = settings_blob
+    gen.prompt_used = prompt
+    gen.negative_prompt = NEGATIVE_PROMPT
+    gen.status = DecorativeGenerationStatus.GENERATING
+    gen.error_message = ''
+    gen.save()
+
+    resolution = QUALITY_RESOLUTION_MAP.get(data.get('render_quality', 'standard'), '2K')
+
+    try:
+        task_id = create_generation_task(
+            prompt=prompt,
+            image_urls=image_urls,
+            aspect_ratio=data.get('aspect_ratio', '16:9'),
+            resolution=resolution,
+        )
+        gen.kie_task_id = task_id
+        gen.save()
+    except Exception as e:
+        logger.error(f"Kie.ai dual-mode task creation failed: {e}")
         gen.status = DecorativeGenerationStatus.FAILED
         gen.error_message = str(e)
         gen.save()

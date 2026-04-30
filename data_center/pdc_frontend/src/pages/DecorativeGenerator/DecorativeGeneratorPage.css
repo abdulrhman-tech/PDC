@@ -3242,3 +3242,111 @@
     justify-content: center;
     gap: 6px;
 }
+
+/* ─── Dual Same-Category Mode ───────────────────────────────────────────── */
+.mode-chooser-icon--dual {
+    background: linear-gradient(135deg, rgba(244, 114, 182, 0.15), rgba(217, 70, 239, 0.08));
+    color: #ec4899;
+    border: 1px solid rgba(244, 114, 182, 0.3);
+}
+
+.dual-slots-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.dual-slot-card {
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 1rem;
+    background: var(--color-card);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.dual-slot-letter {
+    font-weight: 800;
+    font-size: 1.05rem;
+    color: var(--color-text-primary);
+    background: linear-gradient(135deg, rgba(244,114,182,0.15), rgba(217,70,239,0.06));
+    border: 1px solid rgba(244,114,182,0.3);
+    padding: 4px 10px;
+    border-radius: 999px;
+    align-self: flex-start;
+}
+
+.dual-surface-toggle {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.category-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    background: rgba(234, 179, 8, 0.10);
+    border: 1px solid rgba(234, 179, 8, 0.35);
+    color: #b45309;
+    font-size: 0.92rem;
+    line-height: 1.55;
+    margin: 0.75rem 0;
+}
+
+.category-warning strong {
+    color: #92400e;
+}
+
+.pattern-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+}
+
+.pattern-card {
+    border: 2px solid var(--color-border);
+    background: var(--color-card);
+    border-radius: 12px;
+    padding: 0.75rem;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.pattern-card:hover {
+    border-color: rgba(244, 114, 182, 0.45);
+}
+
+.pattern-card.selected {
+    border-color: #ec4899;
+    box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.15);
+}
+
+.pattern-card-preview {
+    width: 88px;
+    height: 88px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+}
+
+.pattern-card-label {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--color-text-primary);
+}
+
+.pattern-card-desc {
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+}

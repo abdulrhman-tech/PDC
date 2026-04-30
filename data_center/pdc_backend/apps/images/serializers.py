@@ -159,3 +159,48 @@ class GenerateMultiSerializer(serializers.Serializer):
     )
     custom_notes = serializers.CharField(required=False, default='', allow_blank=True)
     slot_overrides = SlotOverrideSerializer(many=True, required=False, default=[])
+
+
+# ─── Dual Same-Category Mode ───────────────────────────────────────────────────
+# Two products of the SAME category combined into one surface (floor or wall)
+# using one of four mixing patterns.
+
+DUAL_PATTERN_CHOICES = ['checkerboard', 'half_split', 'stripes', 'border_center']
+DUAL_SURFACE_CHOICES = ['floor', 'wall']
+
+
+class DualSameCategorySlotSerializer(serializers.Serializer):
+    image_url = serializers.URLField()
+    product_id = serializers.IntegerField(required=False)
+    material_subtype_hint = serializers.CharField(required=False, default='', allow_blank=True)
+    generation_mode_hint = serializers.CharField(required=False, default='', allow_blank=True)
+
+
+class AnalyzeDualSerializer(serializers.Serializer):
+    surface = serializers.ChoiceField(choices=DUAL_SURFACE_CHOICES, default='floor')
+    slots = DualSameCategorySlotSerializer(many=True, min_length=2, max_length=2)
+
+
+class GenerateDualSerializer(serializers.Serializer):
+    generation_id = serializers.IntegerField()
+    pattern = serializers.ChoiceField(choices=DUAL_PATTERN_CHOICES)
+    space_type = serializers.CharField()
+    space_type_prompt = serializers.CharField()
+    design_style = serializers.CharField()
+    design_style_prompt = serializers.CharField()
+    lighting = serializers.CharField(required=False, default='')
+    lighting_prompt = serializers.CharField(required=False, default='natural daylight streaming through windows')
+    camera_angle = serializers.CharField(required=False, default='')
+    camera_angle_prompt = serializers.CharField(required=False, default='eye-level perspective')
+    mood = serializers.CharField(required=False, default='')
+    mood_prompt = serializers.CharField(required=False, default='warm and inviting')
+    render_quality = serializers.ChoiceField(
+        choices=['preview', 'standard', 'high'],
+        default='standard',
+    )
+    aspect_ratio = serializers.ChoiceField(
+        choices=['1:1', '16:9', '9:16', '4:3', '3:4'],
+        default='16:9',
+    )
+    custom_notes = serializers.CharField(required=False, default='', allow_blank=True)
+    slot_overrides = SlotOverrideSerializer(many=True, required=False, default=[])

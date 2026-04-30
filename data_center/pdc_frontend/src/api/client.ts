@@ -225,6 +225,17 @@ export const decorativeAPI = {
     }) => api.post('/decorative/analyze-multi/', data),
     generateMulti: (data: object) =>
         api.post('/decorative/generate-multi/', data),
+    analyzeDual: (data: {
+        surface: 'floor' | 'wall'
+        slots: Array<{
+            image_url: string
+            product_id?: number
+            material_subtype_hint?: string
+            generation_mode_hint?: string
+        }>
+    }) => api.post('/decorative/analyze-dual/', data),
+    generateDual: (data: object) =>
+        api.post('/decorative/generate-dual/', data),
     enhance: (data: {
         generation_id: number
         background?: string
