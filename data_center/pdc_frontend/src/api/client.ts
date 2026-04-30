@@ -54,6 +54,8 @@ export const authAPI = {
 
 export const productsAPI = {
     list: (params?: object) => api.get('/products/', { params }),
+    flipbookManifest: () => api.get('/products/flipbook-manifest/'),
+    flipbookProducts: (params?: object) => api.get('/products/flipbook-products/', { params }),
     detail: (id: number) => api.get(`/products/${id}/`),
     create: (data: object) => api.post('/products/', data),
     update: (id: number, data: object) => api.patch(`/products/${id}/`, data),

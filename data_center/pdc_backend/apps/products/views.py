@@ -371,6 +371,103 @@ class ProductViewSet(viewsets.ModelViewSet):
         img.save()
         return Response(ProductImageSerializer(img).data)
 
+    # ────────────────────────────────────────────────────────────────
+    # Public flipbook (interactive catalog) endpoints
+    # ────────────────────────────────────────────────────────────────
+    # The interactive catalog at /flipbook is open to anonymous viewers
+    # (mirrors the existing public listing behavior of /products/). It
+    # used to download the entire ~1.6k-product catalog at once with
+    # page_size=5000, which made the first paint take many seconds.
+    #
+    # The two actions below let the page load instantly:
+    #   - flipbook_manifest  → tiny payload of [{category, count}], used
+    #                          to build the full page sequence and TOC
+    #                          before any product is fetched.
+    #   - flipbook_products  → paginated stream of products ordered to
+    #                          match the manifest, so each batch slots
+    #                          neatly into placeholder pages.
+    #
+    # ProductPermissions.has_permission already returns True for SAFE
+    # methods without authentication, so no permission_classes override
+    # is needed — GET requests stay public.
+
+    @action(detail=False, methods=['get'], url_path='flipbook-manifest')
+    def flipbook_manifest(self, request):
+        """Per-category counts for products that have at least one approved image.
+
+        Public, read-only. Returns categories ordered the same way as
+        ``flipbook_products`` so the frontend can pre-allocate the
+        correct number of placeholder pages and build a stable TOC
+        before any product detail is loaded.
+
+        Response shape:
+            {
+                "categories": [
+                    {"id": 3, "name_ar": "...", "name_en": "...",
+                     "slug": "...", "icon": "...", "product_count": 124},
+                    ...
+                ],
+                "total_products": 1640
+            }
+
+        Categories with zero qualifying products are omitted so the
+        flipbook never renders an empty chapter divider. The qualifying
+        rule (``images__status='approved'``) matches the frontend filter
+        on ``main_image_url``: the list serializer falls back to ANY
+        approved image when the canonical "main" one is missing, so a
+        product is shown iff it has at least one approved image.
+        """
+        from django.db.models import Count, Q
+        from apps.categories.models import Category
+
+        qs = (
+            Category.objects
+            .annotate(
+                product_count=Count(
+                    'products',
+                    filter=Q(products__images__status='approved'),
+                    distinct=True,
+                ),
+            )
+            .filter(product_count__gt=0)
+            .order_by('sort_order', 'order', 'name_ar', 'id')
+            .values('id', 'name_ar', 'name_en', 'slug', 'icon', 'product_count')
+        )
+        rows = list(qs)
+        total = sum(r['product_count'] for r in rows)
+        return Response({'categories': rows, 'total_products': total})
+
+    @action(detail=False, methods=['get'], url_path='flipbook-products')
+    def flipbook_products(self, request):
+        """Streaming product feed for the interactive catalog.
+
+        Public, read-only, paginated by the project-wide
+        ``StandardResultsSetPagination`` (so ``?page=N&page_size=30``
+        works out of the box). Filters to products that have at least
+        one approved image and orders them so an entire category's
+        products always appear contiguously, in the same order as
+        ``flipbook_manifest``. That guarantees streamed batches slot
+        directly into the placeholder pages built from the manifest.
+        """
+        qs = (
+            Product.objects
+            .filter(images__status='approved')
+            .select_related('category', 'brand')
+            .prefetch_related('images')
+            .order_by(
+                'category__sort_order', 'category__order',
+                'category__name_ar', 'category_id',
+                'product_name_ar', 'id',
+            )
+            .distinct()
+        )
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            data = ProductListSerializer(page, many=True).data
+            return self.get_paginated_response(data)
+        data = ProductListSerializer(qs, many=True).data
+        return Response(data)
+
     @action(detail=False, methods=['get'], url_path='import-excel/template', permission_classes=[permissions.IsAuthenticated])
     def import_excel_template(self, request):
         """Return a category-specific downloadable Excel template."""

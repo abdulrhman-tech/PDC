@@ -6,7 +6,7 @@ import {
     forwardRef,
     useMemo,
 } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import HTMLFlipBook from "react-pageflip";
 import {
@@ -39,7 +39,7 @@ import {
     Zap,
     Target,
 } from "lucide-react";
-import { productsAPI, categoriesAPI } from "@/api/client";
+import { productsAPI } from "@/api/client";
 import { useThemeStore } from "@/store/themeStore";
 import { pickBilingual } from "@/i18n/bilingual";
 import type { Product, Category } from "@/types";
@@ -79,9 +79,18 @@ interface FlipbookPageEntry {
     type: "cover-front" | "cover-back" | "about-us-1" | "about-us-2"
         | "table-of-contents" | "category-chapter" | "products" | "empty";
     category?: Category;
-    products?: Product[];
     chapterNumber?: number;
+    productCount?: number;          // chapter divider: total products in this chapter
     categoryRef?: Category;
+    /* For "products" entries we don't carry actual Product objects on the
+       page entry itself; we carry the absolute slice into the streamed
+       loadedProducts array. The page renderer then either pulls real
+       cards from that slice or shows skeleton placeholders if the slice
+       is not yet loaded. This keeps the children array length and
+       identity stable across streaming updates so react-pageflip
+       preserves its current page index. */
+    productSliceStart?: number;
+    productSliceEnd?: number;
 }
 
 interface FlipBookRef {
@@ -634,9 +643,15 @@ function CategoryChapterPage({ category, count, chapterNumber, lang }: { categor
 }
 
 function ProductGridPage({
-    products, pageIndex, totalPages, onProductClick, lang, isDark, categoryRef,
+    products, placeholderCount, pageIndex, totalPages, onProductClick, lang, isDark, categoryRef,
 }: {
-    products: Product[]; pageIndex: number; totalPages: number;
+    products: Product[];
+    /* Number of slots on this page that don't yet have a streamed product
+       — the renderer fills these with skeleton cards (and a small spinner
+       on the first one) so the spread looks complete and the reader gets
+       immediate visual feedback while the network catches up. */
+    placeholderCount: number;
+    pageIndex: number; totalPages: number;
     onProductClick: (p: Product) => void; lang: Lang; isDark: boolean; categoryRef?: Category;
 }) {
     const isAr = lang === "ar";
@@ -648,6 +663,10 @@ function ProductGridPage({
     const catLabel = categoryRef
         ? (isAr ? categoryRef.name_ar : (categoryRef.name_en || categoryRef.name_ar))
         : "";
+
+    const totalSlots = products.length + placeholderCount;
+    const skeletonBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)";
+    const skeletonBgStrong = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
 
     return (
         <div style={{ ...paperPage(isDark), direction: dir, display: "flex", flexDirection: "column", padding: "12px 12px 8px" }}>
@@ -668,7 +687,7 @@ function ProductGridPage({
             {/* Products 2×2 grid */}
             <div style={{
                 display: "grid",
-                gridTemplateColumns: products.length === 1 ? "1fr" : "1fr 1fr",
+                gridTemplateColumns: totalSlots === 1 ? "1fr" : "1fr 1fr",
                 gap: 8, flex: 1,
             }}>
                 {products.map(p => {
@@ -730,6 +749,31 @@ function ProductGridPage({
                         </div>
                     );
                 })}
+
+                {/* Skeleton placeholders for slots whose products are not yet
+                    streamed in. We render the same card shape (image area
+                    + 3 lines of text bars) with a subtle shimmer so the
+                    spread looks complete while data loads. The first
+                    placeholder also shows a small spinner so the user
+                    understands content is on its way. */}
+                {Array.from({ length: placeholderCount }).map((_, idx) => (
+                    <div key={`ph-${idx}`} style={{
+                        border: `1px solid ${cardBorder}`, borderRadius: 6, overflow: "hidden",
+                        position: "relative", display: "flex", flexDirection: "column",
+                        background: cardBg,
+                    }} aria-hidden="true">
+                        <div style={{ flex: "0 0 58%", position: "relative", background: skeletonBgStrong, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            {idx === 0 && (
+                                <div style={{ width: 18, height: 18, borderRadius: "50%", border: "2px solid rgba(200,168,75,0.25)", borderTopColor: "#C8A84B", animation: "spin 0.9s linear infinite" }} />
+                            )}
+                        </div>
+                        <div style={{ flex: 1, padding: "6px 7px", display: "flex", flexDirection: "column", gap: 4 }}>
+                            <div style={{ height: 9, width: "85%", background: skeletonBgStrong, borderRadius: 2 }} />
+                            <div style={{ height: 9, width: "55%", background: skeletonBg, borderRadius: 2 }} />
+                            <div style={{ height: 10, width: "40%", background: skeletonBg, borderRadius: 2, marginTop: 4 }} />
+                        </div>
+                    </div>
+                ))}
             </div>
 
             {/* Classic book page number */}
@@ -927,32 +971,89 @@ export default function FlipbookPage() {
         return () => window.removeEventListener("resize", fn);
     }, []);
 
-    /* Pull the full catalog. page_size=5000 matches the server's
-       max_page_size cap, giving generous headroom over the current ~1.6k
-       product set. We deliberately do NOT filter by status: this matches
-       the existing /catalog behavior, which already shows products of all
-       statuses to anonymous viewers. Curation here is by image presence,
-       not status. Categories are fetched at full size too so chapter
-       rendering has every needed name+icon. */
-    const { data: productsData, isLoading: loadingProducts } = useQuery({
-        queryKey: ["flipbook-products"],
-        queryFn: () => productsAPI.list({ page_size: 5000 }).then(r => r.data),
-    });
-    const { data: categoriesData, isLoading: loadingCats } = useQuery({
-        queryKey: ["flipbook-categories"],
-        queryFn: () => categoriesAPI.list({ page_size: 5000 }).then(r => r.data),
+    /* ── Lazy / streaming data fetch ───────────────────────────────
+       The flipbook used to download the entire ~1.6k-product catalog
+       up front (page_size=5000) before rendering anything, leaving the
+       reader staring at a spinner for many seconds. We now do two
+       separate things:
+
+       1. Manifest — a tiny payload of [{category, product_count}],
+          ordered the same way as the streaming endpoint. This lets us
+          build the entire page sequence (cover → about → TOC →
+          chapters → back cover) with placeholder product pages BEFORE
+          loading any product detail. Total page count, TOC entries,
+          and the category jump dropdown are all accurate from the
+          first paint, so they never shift as data streams in.
+
+       2. Streaming infinite query — products are pulled in batches of
+          PRODUCT_BATCH_SIZE (~30) ordered identically to the manifest.
+          Because the orderings match, the i-th streamed product
+          always belongs to the i-th product slot in our placeholder
+          layout — no client-side sorting or grouping required.
+       */
+    const PRODUCT_BATCH_SIZE = 30;
+
+    const { data: manifestData, isLoading: loadingManifest } = useQuery({
+        queryKey: ["flipbook-manifest"],
+        queryFn: () => productsAPI.flipbookManifest().then(r => r.data),
+        staleTime: 5 * 60 * 1000,
     });
 
-    /* Only show products that have at least one approved image. After the
-       serializer's main_image_url fallback, this field is null only when
-       the product has zero approved images — exactly the products we want
-       to skip so the flipbook never shows empty cards. */
-    const products: Product[] = useMemo(() => {
-        const all = (productsData?.results ?? productsData ?? []) as Product[];
-        return all.filter(p => !!p.main_image_url);
-    }, [productsData]);
-    const categories: Category[] = useMemo(() => (categoriesData?.results ?? categoriesData ?? []) as Category[], [categoriesData]);
+    const manifest = useMemo(() => (
+        (manifestData?.categories ?? []) as Array<{
+            id: number; name_ar: string; name_en: string;
+            slug: string | null; icon: string; product_count: number;
+        }>
+    ), [manifestData]);
+    const totalProducts: number = manifestData?.total_products ?? 0;
 
+    type StreamPage = { next: string | null; results: Product[] };
+
+    const {
+        data: streamData,
+        fetchNextPage,
+        hasNextPage,
+        isFetchingNextPage,
+    } = useInfiniteQuery<StreamPage, Error>({
+        queryKey: ["flipbook-products-stream", PRODUCT_BATCH_SIZE],
+        queryFn: ({ pageParam }) =>
+            productsAPI.flipbookProducts({ page: pageParam, page_size: PRODUCT_BATCH_SIZE })
+                .then(r => r.data as StreamPage),
+        initialPageParam: 1,
+        getNextPageParam: (lastPage, allPages) =>
+            lastPage?.next ? allPages.length + 1 : undefined,
+        enabled: !loadingManifest && totalProducts > 0,
+        staleTime: 5 * 60 * 1000,
+    });
+
+    const loadedProducts: Product[] = useMemo(() => {
+        if (!streamData?.pages) return [];
+        return streamData.pages.flatMap(p => p?.results ?? []);
+    }, [streamData]);
+    const loadedCount = loadedProducts.length;
+    const isStreamComplete = totalProducts > 0 && loadedCount >= totalProducts;
+
+    /* The category dropdown / pills used to need a separate fetch from
+       /categories/. The manifest already returns every category that
+       has at least one displayable product, in the right order, with
+       the fields we need (name_ar/en, icon). So we derive `categories`
+       directly — one network round-trip saved. */
+    const categories: Category[] = useMemo(() => manifest.map(m => ({
+        id: m.id,
+        name_ar: m.name_ar,
+        name_en: m.name_en,
+        slug: m.slug,
+        icon: m.icon,
+    } as unknown as Category)), [manifest]);
+
+    /* Build the page sequence from the manifest alone — STABLE in
+       length and identity from first paint. Each "products" entry
+       carries an absolute slice [start, end) into loadedProducts; the
+       renderer fills in real cards or skeleton placeholders depending
+       on how much of the slice has streamed in. We deliberately do not
+       store Product objects on the page entry, otherwise the children
+       array passed to react-pageflip would change identity on every
+       streamed batch and the library could reset the current page. */
     const { pages, categoryPageMap, totalPages, tocPageIndex } = useMemo(() => {
         const allPages: FlipbookPageEntry[] = [];
         allPages.push({ type: "cover-front" });
@@ -961,44 +1062,121 @@ export default function FlipbookPage() {
         const tocIndex = allPages.length;
         allPages.push({ type: "table-of-contents" });
 
-        const categoryOrder = new Map(categories.map((c, i) => [c.id, i]));
-        const sorted = [...products].sort((a, b) => {
-            const oA = categoryOrder.get(a.category) ?? 999;
-            const oB = categoryOrder.get(b.category) ?? 999;
-            if (oA !== oB) return oA - oB;
-            return (a.product_name_ar || "").localeCompare(b.product_name_ar || "", "ar");
-        });
-
-        const grouped = new Map<number, Product[]>();
-        for (const p of sorted) { const arr = grouped.get(p.category) || []; arr.push(p); grouped.set(p.category, arr); }
-
         const catMap: Record<string, number> = {};
         let chapterNum = 1;
-        const sortedCats = categories.filter(c => grouped.has(c.id));
+        let runningOffset = 0;
 
-        for (const cat of sortedCats) {
-            const catProducts = grouped.get(cat.id) || [];
+        for (const cat of manifest) {
+            const count = cat.product_count;
+            if (count <= 0) continue;
+            const catObj = {
+                id: cat.id, name_ar: cat.name_ar, name_en: cat.name_en,
+                slug: cat.slug, icon: cat.icon,
+            } as unknown as Category;
             catMap[String(cat.id)] = allPages.length;
-            allPages.push({ type: "category-chapter", category: cat, products: catProducts, chapterNumber: chapterNum });
+            allPages.push({
+                type: "category-chapter", category: catObj,
+                chapterNumber: chapterNum, productCount: count,
+            });
             chapterNum++;
 
-            const chunks: Product[][] = [];
-            for (let i = 0; i < catProducts.length; i += PRODUCTS_PER_PAGE) chunks.push(catProducts.slice(i, i + PRODUCTS_PER_PAGE));
-            for (const chunk of chunks) allPages.push({ type: "products", products: chunk, categoryRef: cat });
+            const numPages = Math.ceil(count / PRODUCTS_PER_PAGE);
+            for (let i = 0; i < numPages; i++) {
+                const sliceStart = runningOffset + i * PRODUCTS_PER_PAGE;
+                const sliceEnd = Math.min(runningOffset + count, sliceStart + PRODUCTS_PER_PAGE);
+                allPages.push({
+                    type: "products", categoryRef: catObj,
+                    productSliceStart: sliceStart, productSliceEnd: sliceEnd,
+                });
+            }
+            runningOffset += count;
         }
 
-        if (products.length === 0) allPages.push({ type: "empty" });
+        if (manifest.length === 0) allPages.push({ type: "empty" });
         allPages.push({ type: "cover-back" });
 
         return { pages: allPages, categoryPageMap: catMap, totalPages: allPages.length, tocPageIndex: tocIndex };
-    }, [products, categories]);
+    }, [manifest]);
 
-    const flipTo = useCallback((n: number) => { bookRef.current?.pageFlip().flip(n); }, []);
+    /* When the reader jumps far ahead (category pill, dropdown, End
+       key) we record how far they want to read so the prefetch effect
+       below pulls enough batches to cover that target. Setting this is
+       cheap; the effect picks it up and chains fetchNextPage calls. */
+    const [targetLoadedEnd, setTargetLoadedEnd] = useState(0);
+
+    /* Single effect that fires fetchNextPage when EITHER:
+       - the reader is within ~3 spreads of the first unloaded page, OR
+       - a jump declared a target product index beyond loadedCount.
+       The infinite-query machinery already guards against double
+       fetches via isFetchingNextPage. The effect re-runs whenever
+       loadedCount grows, naturally chaining batches until the
+       requirement is satisfied. */
+    useEffect(() => {
+        if (!hasNextPage || isFetchingNextPage) return;
+        if (loadedCount < targetLoadedEnd) {
+            fetchNextPage();
+            return;
+        }
+        const PREFETCH_THRESHOLD_SPREADS = 3;
+        let firstUnloadedPageIndex = -1;
+        for (let i = 0; i < pages.length; i++) {
+            const pg = pages[i];
+            if (pg.type === "products" && (pg.productSliceStart ?? 0) >= loadedCount) {
+                firstUnloadedPageIndex = i;
+                break;
+            }
+        }
+        if (firstUnloadedPageIndex === -1) return;
+        const spreadsAway = Math.floor((firstUnloadedPageIndex - currentPage) / 2);
+        if (spreadsAway <= PREFETCH_THRESHOLD_SPREADS) {
+            fetchNextPage();
+        }
+    }, [currentPage, loadedCount, targetLoadedEnd, hasNextPage, isFetchingNextPage, pages, fetchNextPage]);
+
     const onFlip = useCallback((e: { data: number }) => { setCurrentPage(e.data); }, []);
     const prevPage = useCallback(() => { bookRef.current?.pageFlip().flipPrev(); }, []);
     const nextPage = useCallback(() => { bookRef.current?.pageFlip().flipNext(); }, []);
+
+    /* Centralized navigation: any time we flip to a specific page we
+       also raise targetLoadedEnd so the prefetch effect pulls the
+       needed batches. We flip immediately — the destination spread
+       shows skeleton placeholders for any not-yet-loaded slots, which
+       fade into real cards once their batch arrives (~1 sec typical).
+
+       When the user jumps to a chapter divider (from the dropdown,
+       pill bar, or TOC) we look one page ahead for the first products
+       page in that chapter and raise targetLoadedEnd to the end of
+       its slice. Without this, chapter jumps would only get prefetched
+       opportunistically once the reader was within 3 spreads, leaving
+       "load on demand" feeling sluggish on the very first jump. */
+    const flipTo = useCallback((n: number) => {
+        const target = pages[n];
+        let neededEnd = 0;
+        if (target?.type === "products" && target.productSliceEnd !== undefined) {
+            neededEnd = target.productSliceEnd;
+        } else if (target?.type === "category-chapter") {
+            for (let i = n + 1; i < pages.length; i++) {
+                const next = pages[i];
+                if (next.type === "products" && next.productSliceEnd !== undefined) {
+                    neededEnd = next.productSliceEnd;
+                    break;
+                }
+                if (next.type === "category-chapter") break; // empty chapter — shouldn't happen
+            }
+        }
+        if (neededEnd > 0) {
+            setTargetLoadedEnd(prev => Math.max(prev, neededEnd));
+        }
+        bookRef.current?.pageFlip().flip(n);
+    }, [pages]);
     const goToFirst = useCallback(() => flipTo(0), [flipTo]);
-    const goToLast = useCallback(() => flipTo(pages.length - 1), [flipTo, pages.length]);
+    const goToLast = useCallback(() => {
+        // Last page is the back cover; the last products page sits just
+        // before it. Loading the entire catalog on End-key press is the
+        // user's explicit signal that they want to skim to the end.
+        setTargetLoadedEnd(totalProducts);
+        flipTo(pages.length - 1);
+    }, [flipTo, pages.length, totalProducts]);
 
     const toggleFullscreen = useCallback(() => {
         if (!containerRef.current) return;
@@ -1026,7 +1204,10 @@ export default function FlipbookPage() {
     const isMobile = screenWidth <= 768;
     const bookWidth = isMobile ? Math.min(screenWidth - 24, 360) : 480;
     const bookHeight = Math.round(bookWidth * 1.38);
-    const isLoading = loadingProducts || loadingCats;
+    /* The book renders as soon as the (tiny) manifest arrives. Product
+       data continues to stream in the background; placeholder pages
+       keep the layout stable in the meantime. */
+    const isLoading = loadingManifest;
 
     const navBtn = (label: string, onClick: () => void, icon: React.ReactNode) => (
         <button className="flip-nav-btn" title={label} onClick={onClick} style={{
@@ -1171,8 +1352,33 @@ export default function FlipbookPage() {
                     <>
                         <div style={{ width: bookWidth, marginBottom: 10 }}>
                             <ProgressBar currentPage={currentPage} totalPages={pages.length} />
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--color-text-muted)" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 9, color: "var(--color-text-muted)", gap: 8 }}>
                                 <span>{t.readingProgress}</span>
+                                {/* Background-loading status — shown only while
+                                    products are still streaming in. Anchored
+                                    next to the reading-progress label so it
+                                    sits inside the existing book frame area
+                                    without overlapping the page content. */}
+                                {!isStreamComplete && totalProducts > 0 && (
+                                    <span style={{
+                                        display: "inline-flex", alignItems: "center", gap: 5,
+                                        padding: "2px 7px",
+                                        background: "var(--color-surface-raised)",
+                                        border: "1px solid var(--color-border)",
+                                        borderRadius: 10, color: "var(--color-text-muted)",
+                                        fontSize: 9, whiteSpace: "nowrap",
+                                    }} aria-live="polite">
+                                        <span style={{
+                                            width: 6, height: 6, borderRadius: "50%",
+                                            background: "#C8A84B", display: "inline-block",
+                                            animation: "spin 1.4s linear infinite",
+                                            boxShadow: "0 0 4px rgba(200,168,75,0.5)",
+                                        }} />
+                                        {isAr
+                                            ? `تم تحميل ${loadedCount.toLocaleString("ar-SA")} من ${totalProducts.toLocaleString("ar-SA")} منتج`
+                                            : `Loaded ${loadedCount.toLocaleString("en")} of ${totalProducts.toLocaleString("en")} products`}
+                                    </span>
+                                )}
                                 <span>{currentPage + 1} / {pages.length}</span>
                             </div>
                         </div>
@@ -1220,9 +1426,18 @@ export default function FlipbookPage() {
                                     if (pg.type === "table-of-contents")
                                         return <Page key="toc"><TocPage categories={categories} categoryPageMap={categoryPageMap} onNavigate={flipTo} lang={lang} isDark={isDark} /></Page>;
                                     if (pg.type === "category-chapter" && pg.category)
-                                        return <Page key={`chap-${pg.category.id}`} style={{ background: "#0B1A2E" }}><CategoryChapterPage category={pg.category} count={pg.products?.length || 0} chapterNumber={pg.chapterNumber || 1} lang={lang} /></Page>;
-                                    if (pg.type === "products")
-                                        return <Page key={`prod-${i}`}><ProductGridPage products={pg.products!} pageIndex={i} totalPages={totalPages} onProductClick={setSelectedProduct} lang={lang} isDark={isDark} categoryRef={pg.categoryRef} /></Page>;
+                                        return <Page key={`chap-${pg.category.id}`} style={{ background: "#0B1A2E" }}><CategoryChapterPage category={pg.category} count={pg.productCount || 0} chapterNumber={pg.chapterNumber || 1} lang={lang} /></Page>;
+                                    if (pg.type === "products") {
+                                        // Slot real cards from the streamed buffer; any
+                                        // not-yet-loaded positions render as skeletons.
+                                        const start = pg.productSliceStart ?? 0;
+                                        const end = pg.productSliceEnd ?? start;
+                                        const expected = Math.max(0, end - start);
+                                        const sliceEnd = Math.min(end, loadedCount);
+                                        const slice = sliceEnd > start ? loadedProducts.slice(start, sliceEnd) : [];
+                                        const placeholderCount = Math.max(0, expected - slice.length);
+                                        return <Page key={`prod-${i}`}><ProductGridPage products={slice} placeholderCount={placeholderCount} pageIndex={i} totalPages={totalPages} onProductClick={setSelectedProduct} lang={lang} isDark={isDark} categoryRef={pg.categoryRef} /></Page>;
+                                    }
                                     if (pg.type === "cover-back")
                                         return <Page key="cover-b" style={{ background: "#0B1A2E" }}><BackCoverPage lang={lang} /></Page>;
                                     return (
