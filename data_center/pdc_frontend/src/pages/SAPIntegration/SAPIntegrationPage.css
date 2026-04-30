@@ -46,6 +46,22 @@
     font-weight: 500;
 }
 
+.sap-fetched-at {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-text-secondary);
+    font-weight: 500;
+    cursor: help;
+    white-space: nowrap;
+}
+
+.sap-fetched-at-time {
+    color: var(--color-text-muted, rgba(255, 255, 255, 0.45));
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+}
+
 .sap-env-switcher {
     display: inline-flex;
     align-items: center;

@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { sapAPI } from '@/api/client'
 import type { SapEnv } from '@/api/client'
 import { useSapEnv } from './SapEnvContext'
+import { useFetchedAtLabel } from './useFetchedAtLabel'
 import { Calendar, Loader2, Download, Search, Database, X, Package, CheckCircle2, SkipForward, AlertCircle, RefreshCw } from 'lucide-react'
 
 interface ProductRow {
@@ -52,6 +53,8 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
     const [error, setError] = useState('')
     const [hasFetched, setHasFetched] = useState(false)
     const [fetchedEnv, setFetchedEnv] = useState<SapEnv | null>(null)
+    const [fetchedAt, setFetchedAt] = useState<Date | null>(null)
+    const fetchedAtLabel = useFetchedAtLabel(fetchedAt)
     const [search, setSearch] = useState('')
     const [existFilter, setExistFilter] = useState<ExistFilter>('all')
     const [selected, setSelected] = useState<ProductRow | null>(null)
@@ -77,6 +80,7 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
             setItems(data.items || [])
             setHasFetched(true)
             setFetchedEnv(reqEnv)
+            setFetchedAt(new Date())
         } catch (e: any) {
             if (envRef.current !== reqEnv) return
             setError(e?.response?.data?.error || 'فشل جلب الأصناف')
@@ -90,6 +94,7 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
         setItems([])
         setHasFetched(false)
         setFetchedEnv(null)
+        setFetchedAt(null)
         setError('')
         setChecked(new Set())
         setSelected(null)
@@ -172,6 +177,7 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
             if (envRef.current !== reqEnv) return
             setItems(refetch.data.items || [])
             setFetchedEnv(reqEnv)
+            setFetchedAt(new Date())
         } catch (e: any) {
             if (envRef.current !== reqEnv) return
             setSyncError(e?.response?.data?.error || 'فشلت المزامنة')
@@ -258,6 +264,12 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
                             <span className="sap-fetched-from">
                                 آخر جلب:
                                 <span className={`env-badge ${fetchedEnv.toLowerCase()}`}>{fetchedEnv}</span>
+                                {fetchedAt && (
+                                    <span className="sap-fetched-at" title={fetchedAtLabel.tooltip}>
+                                        · {fetchedAtLabel.relative}
+                                        <span className="sap-fetched-at-time">({fetchedAtLabel.absolute})</span>
+                                    </span>
+                                )}
                             </span>
                         )}
                         <span className="sap-stat-chip">إجمالي: <span className="stat-value">{items.length}</span></span>
@@ -429,6 +441,7 @@ export default function ProductsByDateTab({ onSyncComplete }: Props) {
                                             const refetch = await sapAPI.getProductsByDate(dateFrom, dateTo, reqEnv)
                                             if (envRef.current !== reqEnv) return
                                             setItems(refetch.data.items || [])
+                                            setFetchedAt(new Date())
                                             setSelected(null)
                                         } catch (e: any) {
                                             if (envRef.current !== reqEnv) return

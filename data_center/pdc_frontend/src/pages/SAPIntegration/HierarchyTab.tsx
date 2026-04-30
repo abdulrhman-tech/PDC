@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { sapAPI } from '@/api/client'
 import type { SapEnv } from '@/api/client'
 import { useSapEnv } from './SapEnvContext'
+import { useFetchedAtLabel } from './useFetchedAtLabel'
 import {
     RefreshCw, ChevronLeft, Download, Search,
     X, Loader2, FolderTree, FileText, Database, CheckSquare, Square,
@@ -75,6 +76,8 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
     const [fetchError, setFetchError] = useState('')
     const [hasFetched, setHasFetched] = useState(false)
     const [fetchedEnv, setFetchedEnv] = useState<SapEnv | null>(null)
+    const [fetchedAt, setFetchedAt] = useState<Date | null>(null)
+    const fetchedAtLabel = useFetchedAtLabel(fetchedAt)
 
     const [search, setSearch] = useState('')
     const [levelFilter, setLevelFilter] = useState<number | null>(null)
@@ -92,6 +95,7 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
         setFetchError('')
         setHasFetched(false)
         setFetchedEnv(null)
+        setFetchedAt(null)
         setExpanded(new Set())
         setSelectedCode(null)
         setSelectedForSync(new Set())
@@ -119,6 +123,7 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
             setTotalCount(data.total || 0)
             setHasFetched(true)
             setFetchedEnv(reqEnv)
+            setFetchedAt(new Date())
             const l1 = new Set<string>()
             for (const it of (data.items || [])) if (it.level === 1) l1.add(it.code)
             setExpanded(l1)
@@ -352,6 +357,12 @@ export default function HierarchyTab({ onSyncComplete }: Props) {
                         <span className="sap-fetched-from">
                             آخر جلب:
                             <span className={`env-badge ${fetchedEnv.toLowerCase()}`}>{fetchedEnv}</span>
+                            {fetchedAt && (
+                                <span className="sap-fetched-at" title={fetchedAtLabel.tooltip}>
+                                    · {fetchedAtLabel.relative}
+                                    <span className="sap-fetched-at-time">({fetchedAtLabel.absolute})</span>
+                                </span>
+                            )}
                         </span>
                     )}
                     <span className="sap-stat-chip">إجمالي التصنيفات: <span className="stat-value">{totalCount}</span></span>
