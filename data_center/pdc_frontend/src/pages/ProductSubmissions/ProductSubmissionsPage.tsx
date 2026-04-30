@@ -12,7 +12,9 @@ import {
 import { submissionsAPI, categoriesAPI, brandsAPI, settingsAPI } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { toast } from 'react-toastify'
-import type { Category, AttributeSchemaItem } from '@/types'
+import type { AttributeSchemaItem } from '@/types'
+import { pickBilingual } from '@/i18n/bilingual'
+import { useTranslation } from 'react-i18next'
 
 interface SubmissionImage { id: number; r2_url: string }
 interface ExtraData {
@@ -30,6 +32,7 @@ interface Submission {
     sku: string
     category: number | null
     category_name: string
+    category_name_en?: string
     product_name_ar: string
     submitter_name: string
     submitter_email: string
@@ -147,13 +150,18 @@ function ExpandedDrawer({ item, onClose }: { item: Submission; onClose: () => vo
     const isManager = user?.role === 'مدير_قسم'
 
     // ── Lookup data ──
-    const { data: categoriesData } = useQuery({
-        queryKey: ['categories'], queryFn: () => categoriesAPI.list().then(r => r.data),
+    // Fetch the SPECIFIC category (with its legacy subcategories) by ID.
+    // Avoids the paginated /categories/ endpoint, which only returned the first
+    // 24 root categories and silently broke the subcategory dropdown for any
+    // submission whose category lay outside that page.
+    const { data: catObj } = useQuery({
+        queryKey: ['category-detail', item.category],
+        queryFn: () => item.category
+            ? categoriesAPI.detail(item.category).then(r => r.data)
+            : Promise.resolve(null),
+        enabled: !!item.category,
     })
-    const categories: Category[] = useMemo(
-        () => (categoriesData?.results ?? categoriesData ?? []) as Category[], [categoriesData])
-    const catObj = categories.find(c => c.id === item.category)
-    const subcategories = catObj?.subcategories ?? []
+    const subcategories: { id: number; name_ar: string }[] = catObj?.subcategories ?? []
 
     const { data: brandsData } = useQuery({
         queryKey: ['brands'], queryFn: () => brandsAPI.list().then(r => { const d = r.data; return Array.isArray(d) ? d : d.results ?? [] }),
@@ -570,6 +578,8 @@ export default function ProductSubmissionsPage() {
     const [filterStatus, setFilterStatus] = useState('all')
     const [expandedId, setExpandedId]     = useState<number | null>(null)
     const user = useAuthStore(s => s.user)
+    const { i18n } = useTranslation()
+    const isAr = i18n.language === 'ar'
 
     const { data, isLoading } = useQuery<Submission[]>({
         queryKey: ['submissions'],
@@ -718,7 +728,7 @@ export default function ProductSubmissionsPage() {
 
                                             {/* Category */}
                                             <td style={{ padding: '11px 14px', fontSize: 13, color: 'var(--color-text-secondary)' }}>
-                                                {item.category_name || '—'}
+                                                {pickBilingual(item.category_name, item.category_name_en, isAr) || '—'}
                                             </td>
 
                                             {/* Image count */}

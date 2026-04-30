@@ -208,13 +208,15 @@ class SubmissionImageSerializer(serializers.ModelSerializer):
 class ProductSubmissionSerializer(serializers.ModelSerializer):
     images           = SubmissionImageSerializer(many=True, read_only=True)
     category_name    = serializers.CharField(source='category.name_ar', read_only=True)
+    category_name_en = serializers.CharField(source='category.name_en', read_only=True)
     status_display   = serializers.CharField(source='get_status_display', read_only=True)
     manager_name     = serializers.CharField(source='assigned_manager.name_ar', read_only=True)
 
     class Meta:
         model = ProductSubmission
         fields = [
-            'id', 'sku', 'category', 'category_name', 'product_name_ar',
+            'id', 'sku', 'category', 'category_name', 'category_name_en',
+            'product_name_ar',
             'submitter_name', 'submitter_email',
             'status', 'status_display',
             'assigned_manager', 'manager_name',
