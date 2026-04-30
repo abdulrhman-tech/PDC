@@ -42,7 +42,21 @@ import {
 import { productsAPI } from "@/api/client";
 import { useThemeStore } from "@/store/themeStore";
 import { pickBilingual } from "@/i18n/bilingual";
-import type { Product, Category } from "@/types";
+import type { Product } from "@/types";
+
+/* Minimal category shape returned by /products/flipbook-manifest/.
+   The flipbook page only needs id/name/slug/icon for navigation and
+   chapter rendering, so we define a dedicated lightweight type rather
+   than coercing into the heavier global `Category` (which carries
+   is_active, subcategories, etc. that the manifest endpoint
+   intentionally omits). */
+interface FlipbookManifestCategory {
+    id: number;
+    name_ar: string;
+    name_en: string;
+    slug: string | null;
+    icon: string;
+}
 
 const PRODUCTS_PER_PAGE = 4;
 
@@ -78,10 +92,10 @@ function getCategoryBackground(categoryName: string): string {
 interface FlipbookPageEntry {
     type: "cover-front" | "cover-back" | "about-us-1" | "about-us-2"
         | "table-of-contents" | "category-chapter" | "products" | "empty";
-    category?: Category;
+    category?: FlipbookManifestCategory;
     chapterNumber?: number;
     productCount?: number;          // chapter divider: total products in this chapter
-    categoryRef?: Category;
+    categoryRef?: FlipbookManifestCategory;
     /* For "products" entries we don't carry actual Product objects on the
        page entry itself; we carry the absolute slice into the streamed
        loadedProducts array. The page renderer then either pulls real
@@ -487,12 +501,12 @@ function AboutUs2Page({ lang, isDark }: { lang: Lang; isDark: boolean }) {
 function TocPage({
     categories, categoryPageMap, onNavigate, lang, isDark,
 }: {
-    categories: Category[]; categoryPageMap: Record<string, number>;
+    categories: FlipbookManifestCategory[]; categoryPageMap: Record<string, number>;
     onNavigate: (n: number) => void; lang: Lang; isDark: boolean;
 }) {
     const isAr = lang === "ar";
     const dir = isAr ? "rtl" : "ltr";
-    const catName = (c: Category) => pickBilingual(c.name_ar, c.name_en, isAr);
+    const catName = (c: FlipbookManifestCategory) => pickBilingual(c.name_ar, c.name_en, isAr);
 
     return (
         <div style={{ ...paperPage(isDark), direction: dir, display: "flex", flexDirection: "column", padding: "28px 24px 20px" }}>
@@ -570,7 +584,7 @@ function TocPage({
     );
 }
 
-function CategoryChapterPage({ category, count, chapterNumber, lang }: { category: Category; count: number; chapterNumber: number; lang: Lang }) {
+function CategoryChapterPage({ category, count, chapterNumber, lang }: { category: FlipbookManifestCategory; count: number; chapterNumber: number; lang: Lang }) {
     const isAr = lang === "ar";
     const bgUrl = getCategoryBackground(category.name_ar || "");
     const nameAr = category.name_ar || "";
@@ -652,7 +666,7 @@ function ProductGridPage({
        immediate visual feedback while the network catches up. */
     placeholderCount: number;
     pageIndex: number; totalPages: number;
-    onProductClick: (p: Product) => void; lang: Lang; isDark: boolean; categoryRef?: Category;
+    onProductClick: (p: Product) => void; lang: Lang; isDark: boolean; categoryRef?: FlipbookManifestCategory;
 }) {
     const isAr = lang === "ar";
     const dir = isAr ? "rtl" : "ltr";
@@ -1020,8 +1034,23 @@ export default function FlipbookPage() {
             productsAPI.flipbookProducts({ page: pageParam, page_size: PRODUCT_BATCH_SIZE })
                 .then(r => r.data as StreamPage),
         initialPageParam: 1,
-        getNextPageParam: (lastPage, allPages) =>
-            lastPage?.next ? allPages.length + 1 : undefined,
+        /* Derive the next page number by parsing the `next` URL the
+           backend already returns, rather than incrementing
+           `allPages.length`. This stays correct even if the backend
+           ever skips, retries, or renumbers pages, and avoids a
+           silent double-fetch / stall mismatch. Falls back to the
+           length-based counter only if `next` exists but lacks a
+           parseable `page` query param. */
+        getNextPageParam: (lastPage, allPages) => {
+            if (!lastPage?.next) return undefined;
+            try {
+                const url = new URL(lastPage.next, window.location.origin);
+                const p = url.searchParams.get("page");
+                const n = p ? parseInt(p, 10) : NaN;
+                if (Number.isFinite(n) && n > 0) return n;
+            } catch { /* ignore parse errors */ }
+            return allPages.length + 1;
+        },
         enabled: !loadingManifest && totalProducts > 0,
         staleTime: 5 * 60 * 1000,
     });
@@ -1038,13 +1067,13 @@ export default function FlipbookPage() {
        has at least one displayable product, in the right order, with
        the fields we need (name_ar/en, icon). So we derive `categories`
        directly — one network round-trip saved. */
-    const categories: Category[] = useMemo(() => manifest.map(m => ({
+    const categories: FlipbookManifestCategory[] = useMemo(() => manifest.map(m => ({
         id: m.id,
         name_ar: m.name_ar,
         name_en: m.name_en,
         slug: m.slug,
         icon: m.icon,
-    } as unknown as Category)), [manifest]);
+    })), [manifest]);
 
     /* Build the page sequence from the manifest alone — STABLE in
        length and identity from first paint. Each "products" entry
@@ -1069,10 +1098,10 @@ export default function FlipbookPage() {
         for (const cat of manifest) {
             const count = cat.product_count;
             if (count <= 0) continue;
-            const catObj = {
+            const catObj: FlipbookManifestCategory = {
                 id: cat.id, name_ar: cat.name_ar, name_en: cat.name_en,
                 slug: cat.slug, icon: cat.icon,
-            } as unknown as Category;
+            };
             catMap[String(cat.id)] = allPages.length;
             allPages.push({
                 type: "category-chapter", category: catObj,
