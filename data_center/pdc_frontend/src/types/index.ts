@@ -209,6 +209,7 @@ export interface ApprovalRequest {
     product_sku: string
     product_name_ar: string
     product_category: string
+    product_category_en?: string
     request_type: 'new_product' | 'edit_product'
     request_type_display: string
     submitted_by: number

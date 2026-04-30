@@ -5,12 +5,14 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-    CheckCircle, XCircle, Clock, PackagePlus, Pencil,
+    CheckCircle, XCircle, PackagePlus, Pencil,
     AlertCircle, Filter,
 } from 'lucide-react'
 import { approvalsAPI } from '@/api/client'
 import { toast } from 'react-toastify'
 import type { ApprovalRequest } from '@/types'
+import { pickBilingual } from '@/i18n/bilingual'
+import { useTranslation } from 'react-i18next'
 
 const STATUS_LABEL: Record<string, string> = {
     pending: 'قيد الانتظار',
@@ -40,16 +42,31 @@ type FilterStatus = 'all' | 'pending' | 'approved' | 'rejected'
 
 export default function ApprovalsPage() {
     const qc = useQueryClient()
+    const { i18n } = useTranslation()
+    const isAr = i18n.language === 'ar'
     const [notes, setNotes] = useState<Record<number, string>>({})
     const [filter, setFilter] = useState<FilterStatus>('pending')
 
-    const statusParam = filter === 'all' ? undefined : filter
+    // "قيد الانتظار" must include all in-flight statuses (pending + ai_reviewed
+    // + human_reviewing) so a request that has moved to an intermediate review
+    // state is still visible in the active tab. Backend supports comma-separated.
+    const statusParam =
+        filter === 'all'      ? undefined :
+        filter === 'pending'  ? 'pending,ai_reviewed,human_reviewing' :
+        filter
 
     const { data, isLoading } = useQuery({
         queryKey: ['approvals', filter],
         queryFn: () => approvalsAPI.list(statusParam ? { status: statusParam } : {}).then(r => r.data),
     })
     const approvals: ApprovalRequest[] = data?.results ?? []
+
+    const emptyCopy: Record<FilterStatus, string> = {
+        pending:  'لا توجد طلبات قيد الانتظار',
+        approved: 'لا توجد طلبات تمت الموافقة عليها',
+        rejected: 'لا توجد طلبات مرفوضة',
+        all:      'لا توجد طلبات اعتماد',
+    }
 
     const approveMutation = useMutation({
         mutationFn: (id: number) => approvalsAPI.approve(id, notes[id] ?? ''),
@@ -119,13 +136,17 @@ export default function ApprovalsPage() {
             ) : approvals.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--color-warm-gray)' }}>
                     <CheckCircle size={48} strokeWidth={1} color="var(--color-active)" style={{ marginBottom: 16 }} />
-                    <p>لا توجد طلبات في هذا التصنيف</p>
+                    <p>{emptyCopy[filter]}</p>
                 </div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {approvals.map((req) => {
-                        const isPending = req.status === 'pending' || req.status === 'ai_reviewed'
+                        const isPending =
+                            req.status === 'pending' ||
+                            req.status === 'ai_reviewed' ||
+                            req.status === 'human_reviewing'
                         const isEdit = req.request_type === 'edit_product'
+                        const categoryLabel = pickBilingual(req.product_category, req.product_category_en, isAr)
 
                         return (
                             <div
@@ -167,9 +188,9 @@ export default function ApprovalsPage() {
                                             <span style={{ fontSize: 12, color: 'var(--color-warm-gray)' }}>
                                                 SKU: <code style={{ fontFamily: 'monospace' }}>{req.product_sku}</code>
                                             </span>
-                                            {req.product_category && (
+                                            {categoryLabel && (
                                                 <span style={{ fontSize: 12, color: 'var(--color-warm-gray)' }}>
-                                                    التصنيف: {req.product_category}
+                                                    التصنيف: {categoryLabel}
                                                 </span>
                                             )}
                                         </div>
