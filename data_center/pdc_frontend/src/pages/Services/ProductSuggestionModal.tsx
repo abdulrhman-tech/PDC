@@ -1,26 +1,15 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { X, Upload, Trash2, Send } from 'lucide-react'
-import { categoriesAPI, submissionsAPI } from '@/api/client'
-import { pickBilingual } from '@/i18n/bilingual'
-import type { CategoryFlat } from '@/types'
+import { submissionsAPI } from '@/api/client'
+import { CategoryTreeSelect } from '@/components/CategoryTreeSelect/CategoryTreeSelect'
 
 interface Props {
     onClose: () => void
 }
 
 export default function ProductSuggestionModal({ onClose }: Props) {
-    const { t, i18n } = useTranslation()
-    const isAr = i18n.language === 'ar'
-    const catName = (c: { name_ar: string; name_en?: string }) =>
-        pickBilingual(c.name_ar, c.name_en, isAr)
-
-    const { data: categories = [] } = useQuery<CategoryFlat[]>({
-        queryKey: ['categories-flat'],
-        queryFn: () => categoriesAPI.flat().then(r => r.data),
-        staleTime: 5 * 60 * 1000,
-    })
+    const { t } = useTranslation()
 
     const [submitForm, setSubmitForm] = useState({
         sku: '', category: '', product_name_ar: '', submitter_name: '', submitter_email: '',
@@ -117,25 +106,11 @@ export default function ProductSuggestionModal({ onClose }: Props) {
                                 <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 5 }}>
                                     {t('submit.category')} *
                                 </label>
-                                <select
-                                    value={submitForm.category}
-                                    onChange={e => setSubmitForm(f => ({ ...f, category: e.target.value }))}
-                                    style={{
-                                        width: '100%', padding: '10px 12px',
-                                        background: 'var(--color-surface-raised)', border: '1px solid var(--color-border-strong)',
-                                        borderRadius: 8, color: submitForm.category ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
-                                        fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box',
-                                    }}
-                                >
-                                    <option value="" style={{ background: 'var(--color-surface-raised)' }}>
-                                        {t('submit.select_category')}
-                                    </option>
-                                    {categories.map((c: CategoryFlat) => (
-                                        <option key={c.id} value={c.id} style={{ background: 'var(--color-surface-raised)' }}>
-                                            {catName(c)}
-                                        </option>
-                                    ))}
-                                </select>
+                                <CategoryTreeSelect
+                                    value={submitForm.category || null}
+                                    onChange={(id) => setSubmitForm(f => ({ ...f, category: id ? String(id) : '' }))}
+                                    placeholder={t('submit.select_category')}
+                                />
                             </div>
                             <div>
                                 <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 5 }}>

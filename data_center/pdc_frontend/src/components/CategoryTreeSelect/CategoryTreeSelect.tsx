@@ -3,9 +3,11 @@
  * Shows a dropdown with the full tree (indented) for selecting any node.
  */
 import { useState, useRef, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, X, Search } from 'lucide-react'
 import { categoriesAPI } from '@/api/client'
+import { pickBilingual } from '@/i18n/bilingual'
 import type { CategoryFlat } from '@/types'
 
 interface Props {
@@ -21,6 +23,8 @@ const LEVEL_COLORS: Record<number, string> = {
 }
 
 export function CategoryTreeSelect({ value, onChange, placeholder = 'اختر التصنيف...', disabled, style }: Props) {
+    const { i18n } = useTranslation()
+    const isAr = i18n.language === 'ar'
     const [open, setOpen] = useState(false)
     const [search, setSearch] = useState('')
     const ref = useRef<HTMLDivElement>(null)
@@ -31,18 +35,30 @@ export function CategoryTreeSelect({ value, onChange, placeholder = 'اختر ا
         staleTime: 60_000,
     })
 
+    // Smart bilingual labels: some categories have name_ar/name_en swapped
+    // (Arabic stored in name_en, SAP code stored in name_ar). pickBilingual
+    // detects this and returns the actually-meaningful Arabic/English string.
+    const primaryLabel = (c: CategoryFlat): string => pickBilingual(c.name_ar, c.name_en, isAr)
+    const secondaryLabel = (c: CategoryFlat): string => {
+        const other = pickBilingual(c.name_ar, c.name_en, !isAr)
+        return other && other !== primaryLabel(c) ? other : ''
+    }
+
     const selected = cats.find(c => c.id === Number(value))
 
     const VISIBLE_LIMIT = 250
     const filteredAll = search.trim()
         ? cats.filter(c => {
             const q = search.toLowerCase()
+            const primary = primaryLabel(c)
             return (
-                c.name_ar.includes(search) ||
-                c.name_en.toLowerCase().includes(q) ||
-                c.code.toLowerCase().includes(q) ||
+                (c.name_ar || '').includes(search) ||
+                (c.name_en || '').toLowerCase().includes(q) ||
+                (c.code || '').toLowerCase().includes(q) ||
                 (c.path_ar || '').includes(search) ||
-                (c.path_en || '').toLowerCase().includes(q)
+                (c.path_en || '').toLowerCase().includes(q) ||
+                primary.toLowerCase().includes(q) ||
+                primary.includes(search)
             )
         })
         : cats
@@ -80,16 +96,11 @@ export function CategoryTreeSelect({ value, onChange, placeholder = 'اختر ا
                     boxSizing: 'border-box',
                 }}>
                 {selected ? (
-                    <span style={{ flex: 1, color: 'var(--color-text-primary)', textAlign: 'right' }}>
+                    <span style={{ flex: 1, color: 'var(--color-text-primary)', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         <span style={{ fontSize: 10, color: LEVEL_COLORS[selected.level] ?? '#C8A84B', fontWeight: 700, background: 'rgba(200,168,75,0.08)', padding: '1px 5px', borderRadius: 3, marginLeft: 6 }}>
                             M{selected.level}
                         </span>
-                        {selected.name_ar}
-                        {selected.name_en && (
-                            <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginRight: 6, fontFamily: 'var(--font-latin)', direction: 'ltr', display: 'inline' }}>
-                                {selected.name_en}
-                            </span>
-                        )}
+                        {primaryLabel(selected)}
                     </span>
                 ) : (
                     <span style={{ flex: 1, color: 'var(--color-text-secondary)', textAlign: 'right' }}>{placeholder}</span>
@@ -177,14 +188,14 @@ export function CategoryTreeSelect({ value, onChange, placeholder = 'اختر ا
                                     {/* Name + parent path for disambiguation */}
                                     <span style={{ flex: 1, opacity: cat.is_active ? 1 : 0.5, minWidth: 0 }}>
                                         <div style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {cat.name_ar}
-                                            {cat.name_en && cat.name_en !== cat.name_ar && (
+                                            {primaryLabel(cat)}
+                                            {secondaryLabel(cat) && (
                                                 <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginRight: 6, fontFamily: 'var(--font-latin)', direction: 'ltr', display: 'inline' }}>
-                                                    {cat.name_en}
+                                                    {secondaryLabel(cat)}
                                                 </span>
                                             )}
                                         </div>
-                                        {cat.level > 1 && cat.path_ar && cat.path_ar !== cat.name_ar && (
+                                        {cat.level > 1 && cat.path_ar && cat.path_ar !== cat.name_ar && cat.path_ar !== primaryLabel(cat) && (
                                             <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                 {cat.path_ar.replace(/ \/ [^/]+$/, '')}
                                             </div>
