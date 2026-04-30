@@ -1434,11 +1434,16 @@ export default function FlipbookPage() {
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 9, color: "var(--color-text-muted)", gap: 8 }}>
                                 <span>{t.readingProgress}</span>
                                 {/* Background-loading status — shown only while
-                                    products are still streaming in. Anchored
-                                    next to the reading-progress label so it
-                                    sits inside the existing book frame area
-                                    without overlapping the page content. */}
-                                {!isStreamComplete && totalProducts > 0 && (
+                                    a batch fetch is actively in flight, or
+                                    before any batch has loaded. Once a batch
+                                    settles and we're idle the badge hides
+                                    until the next prefetch fires, giving a
+                                    calmer reading experience during the long
+                                    idle gaps between user-driven prefetches.
+                                    Anchored next to the reading-progress
+                                    label so it sits inside the existing book
+                                    frame area without overlapping content. */}
+                                {!isStreamComplete && totalProducts > 0 && (loadedCount === 0 || isFetchingNextPage) && (
                                     <span style={{
                                         display: "inline-flex", alignItems: "center", gap: 5,
                                         padding: "2px 7px",
