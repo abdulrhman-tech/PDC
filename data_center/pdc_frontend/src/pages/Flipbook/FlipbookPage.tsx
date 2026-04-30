@@ -38,11 +38,16 @@ import {
     Heart,
     Zap,
     Target,
+    Volume2,
+    VolumeX,
 } from "lucide-react";
 import { productsAPI } from "@/api/client";
 import { useThemeStore } from "@/store/themeStore";
 import { pickBilingual } from "@/i18n/bilingual";
 import type { Product } from "@/types";
+import { playPageFlipSound } from "./pageFlipSound";
+
+const SOUND_PREF_KEY = "flipbook:soundEnabled";
 
 /* Minimal category shape returned by /products/flipbook-manifest/.
    The flipbook page only needs id/name/slug/icon for navigation and
@@ -1162,7 +1167,34 @@ export default function FlipbookPage() {
         }
     }, [currentPage, loadedCount, targetLoadedEnd, hasNextPage, isFetchingNextPage, pages, fetchNextPage]);
 
-    const onFlip = useCallback((e: { data: number }) => { setCurrentPage(e.data); }, []);
+    /* Page-flip sound preference: persisted across sessions in
+       localStorage, defaults to ON (the user explicitly asked for the
+       sound). Wrapped in try/catch because Safari private mode and a
+       few enterprise environments throw on localStorage access. */
+    const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+        try {
+            const v = localStorage.getItem(SOUND_PREF_KEY);
+            return v === null ? true : v === "1";
+        } catch { return true; }
+    });
+    const toggleSound = useCallback(() => {
+        setSoundEnabled(prev => {
+            const next = !prev;
+            try { localStorage.setItem(SOUND_PREF_KEY, next ? "1" : "0"); } catch { /* ignore */ }
+            return next;
+        });
+    }, []);
+    const soundEnabledRef = useRef(soundEnabled);
+    useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
+
+    /* react-pageflip fires `onFlip` on every page change. We read the
+       latest preference through a ref so the handler identity stays
+       stable — otherwise re-binding it on every toggle could disturb
+       the library's internal listeners. */
+    const onFlip = useCallback((e: { data: number }) => {
+        setCurrentPage(e.data);
+        if (soundEnabledRef.current) playPageFlipSound();
+    }, []);
     const prevPage = useCallback(() => { bookRef.current?.pageFlip().flipPrev(); }, []);
     const nextPage = useCallback(() => { bookRef.current?.pageFlip().flipNext(); }, []);
 
@@ -1345,6 +1377,24 @@ export default function FlipbookPage() {
                         borderRadius: 5, cursor: "pointer", color: "var(--color-text-secondary)",
                     }}>
                         {isDark ? <Sun size={14} /> : <Moon size={14} />}
+                    </button>
+
+                    <button
+                        onClick={toggleSound}
+                        title={soundEnabled
+                            ? (isAr ? "كتم صوت قلب الصفحة" : "Mute page-flip sound")
+                            : (isAr ? "تشغيل صوت قلب الصفحة" : "Enable page-flip sound")}
+                        aria-label={soundEnabled
+                            ? (isAr ? "كتم صوت قلب الصفحة" : "Mute page-flip sound")
+                            : (isAr ? "تشغيل صوت قلب الصفحة" : "Enable page-flip sound")}
+                        aria-pressed={soundEnabled}
+                        style={{
+                            display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30,
+                            background: "var(--color-surface-raised)", border: "1px solid var(--color-border)",
+                            borderRadius: 5, cursor: "pointer",
+                            color: soundEnabled ? "#C8A84B" : "var(--color-text-secondary)",
+                        }}>
+                        {soundEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
                     </button>
 
                     <button onClick={() => { try { navigator.share({ url: location.href }); } catch { navigator.clipboard.writeText(location.href); } }}
