@@ -300,38 +300,44 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                                                 {isAr ? <ChevronLeft size={22} strokeWidth={2} /> : <ChevronRight size={22} strokeWidth={2} />}
                                             </button>
 
-                                            {/* Counter */}
-                                            <div style={{
-                                                position: 'absolute',
-                                                bottom: 12,
-                                                insetInlineStart: '50%',
-                                                transform: 'translateX(-50%)',
-                                                background: 'rgba(0,0,0,0.6)',
-                                                color: '#fff',
-                                                fontSize: 12, fontWeight: 600,
-                                                padding: '4px 10px',
-                                                borderRadius: 12,
-                                                pointerEvents: 'none',
-                                                letterSpacing: 0.3,
-                                            }}>
-                                                {openIndex + 1} / {totalImages}
-                                            </div>
-                                        </>
+                                                </>
                                     )}
                                 </div>
                             )}
 
-                            {/* Thumbnails strip */}
+                            {/* Thumbnails strip + counter */}
                             {totalImages > 1 && (
                                 <div style={{
                                     display: 'flex',
+                                    alignItems: 'center',
                                     gap: 8,
-                                    padding: '12px 16px',
-                                    overflowX: 'auto',
-                                    justifyContent: totalImages <= 6 ? 'center' : 'flex-start',
+                                    padding: '10px 16px',
                                     background: '#15181f',
                                     borderBottom: '1px solid rgba(255,255,255,0.06)',
                                 }}>
+                                    {/* Counter badge — always visible, clearly separated from header */}
+                                    <div style={{
+                                        flex: '0 0 auto',
+                                        fontSize: 12, fontWeight: 700,
+                                        color: 'rgba(255,255,255,0.55)',
+                                        background: 'rgba(255,255,255,0.06)',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        borderRadius: 8,
+                                        padding: '5px 10px',
+                                        letterSpacing: 0.5,
+                                        whiteSpace: 'nowrap',
+                                    }}>
+                                        {openIndex + 1} / {totalImages}
+                                    </div>
+
+                                    {/* Scrollable thumbnail list */}
+                                    <div style={{
+                                        display: 'flex',
+                                        gap: 8,
+                                        overflowX: 'auto',
+                                        flex: '1 1 0',
+                                        justifyContent: totalImages <= 6 ? 'center' : 'flex-start',
+                                    }}>
                                     {openProject.images.map((im, idx) => (
                                         <button
                                             key={im.id}
@@ -359,6 +365,7 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                                         </button>
                                     ))}
+                                    </div>
                                 </div>
                             )}
 
