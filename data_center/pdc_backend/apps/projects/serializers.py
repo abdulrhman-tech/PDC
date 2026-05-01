@@ -16,17 +16,17 @@ class ProductMinimalSerializer(serializers.ModelSerializer):
     """Minimal product info for project autocomplete + project detail."""
     category_name_ar = serializers.CharField(source='category.name_ar', read_only=True)
     category_name_en = serializers.CharField(source='category.name_en', read_only=True)
-    thumbnail_url = serializers.SerializerMethodField()
+    main_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
         fields = [
             'id', 'sku', 'product_name_ar', 'product_name_en',
             'category', 'category_name_ar', 'category_name_en',
-            'thumbnail_url',
+            'main_image_url',
         ]
 
-    def get_thumbnail_url(self, obj):
+    def get_main_image_url(self, obj):
         approved = [i for i in obj.images.all() if i.status == 'approved']
         if not approved:
             return None
@@ -138,17 +138,26 @@ class ProjectPublicImageSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class ProjectPublicProductSerializer(serializers.ModelSerializer):
+    """Minimal product info shown inside the public project modal."""
+    class Meta:
+        model = Product
+        fields = ['id', 'sku', 'product_name_ar', 'product_name_en']
+        read_only_fields = fields
+
+
 class ProjectPublicSerializer(serializers.ModelSerializer):
     """
     Lighter serializer used by the public product page section.
     Only exposes safe, public-facing fields.
     """
     images = ProjectPublicImageSerializer(many=True, read_only=True)
+    products = ProjectPublicProductSerializer(many=True, read_only=True)
 
     class Meta:
         model = Project
         fields = [
             'id', 'name_ar', 'name_en', 'description_ar', 'description_en',
             'location_ar', 'location_en', 'project_year',
-            'images',
+            'images', 'products',
         ]

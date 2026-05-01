@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { projectsAPI, translateAPI } from '@/api/client'
 import { toast } from 'react-toastify'
+import { useAuthStore } from '@/store/authStore'
 import type { Project, ProjectProductRef } from '@/types'
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -45,6 +46,8 @@ export default function ProjectFormPage() {
     const projectId = id ? Number(id) : null
     const navigate = useNavigate()
     const queryClient = useQueryClient()
+    const user = useAuthStore(s => s.user)
+    const canEdit = user?.role === 'super_admin' || user?.role === 'مدير_قسم'
 
     const [form, setForm] = useState<FormState>(EMPTY_FORM)
     const [translatingName, setTranslatingName] = useState(false)
@@ -58,6 +61,14 @@ export default function ProjectFormPage() {
     // Image upload state
     const fileInputRef = useRef<HTMLInputElement>(null)
     const [uploading, setUploading] = useState(false)
+    const [dropActive, setDropActive] = useState(false)
+    const [uploadItems, setUploadItems] = useState<Array<{
+        id: string; name: string; pct: number; status: 'pending' | 'uploading' | 'done' | 'error'; error?: string
+    }>>([])
+
+    // Drag-reorder state
+    const [dragImageId, setDragImageId] = useState<number | null>(null)
+    const [dragOverId, setDragOverId] = useState<number | null>(null)
 
     const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
         setForm(prev => ({ ...prev, [k]: v }))
@@ -183,34 +194,76 @@ export default function ProjectFormPage() {
         })
     }
 
-    // ── Image upload ────────────────────────────────────────────────
-    const handleFiles = async (files: FileList | null) => {
-        if (!files || files.length === 0 || !projectId) return
-        const fd = new FormData()
+    // ── Image upload (one file at a time → real per-file progress) ──
+    const handleFiles = async (filesIn: FileList | File[] | null) => {
+        if (!filesIn || !projectId) return
+        const all = Array.from(filesIn as ArrayLike<File>)
+        if (all.length === 0) return
+
+        const accepted: File[] = []
         let rejected = 0
-        for (const f of Array.from(files)) {
-            if (!ALLOWED_TYPES.includes(f.type)) { rejected++; continue }
-            if (f.size > MAX_BYTES) { rejected++; continue }
-            fd.append('files', f)
+        const localItems: typeof uploadItems = []
+        for (const f of all) {
+            const okType = ALLOWED_TYPES.includes(f.type)
+            const okSize = f.size <= MAX_BYTES
+            if (!okType || !okSize) {
+                rejected++
+                continue
+            }
+            const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+            accepted.push(f)
+            localItems.push({ id, name: f.name, pct: 0, status: 'pending' })
         }
         if (rejected > 0) toast.warn(`تم تجاهل ${rejected} ملف (الحد: 10MB، JPG/PNG/WEBP)`)
-        if (!fd.has('files')) return
-        try {
-            setUploading(true)
-            const { data } = await projectsAPI.uploadImages(projectId, fd)
-            const created = (data?.created?.length ?? 0) as number
-            const errors = (data?.errors ?? []) as Array<{ name: string; error: string }>
-            if (created > 0) toast.success(`تم رفع ${created} صورة`)
-            if (errors.length) {
-                errors.slice(0, 3).forEach(e => toast.error(`${e.name}: ${e.error}`))
+        if (accepted.length === 0) return
+
+        setUploadItems(prev => [...prev, ...localItems])
+        setUploading(true)
+
+        let okCount = 0
+        let failCount = 0
+        for (let i = 0; i < accepted.length; i++) {
+            const f = accepted[i]
+            const item = localItems[i]
+            try {
+                setUploadItems(prev => prev.map(p =>
+                    p.id === item.id ? { ...p, status: 'uploading' as const } : p))
+                const fd = new FormData()
+                fd.append('files', f)
+                const { data } = await projectsAPI.uploadImages(projectId, fd, pct => {
+                    setUploadItems(prev => prev.map(p =>
+                        p.id === item.id ? { ...p, pct } : p))
+                })
+                const errs = (data?.errors ?? []) as Array<{ name: string; error: string }>
+                if ((data?.created?.length ?? 0) > 0) {
+                    okCount++
+                    setUploadItems(prev => prev.map(p =>
+                        p.id === item.id ? { ...p, pct: 100, status: 'done' as const } : p))
+                } else {
+                    failCount++
+                    setUploadItems(prev => prev.map(p =>
+                        p.id === item.id
+                            ? { ...p, status: 'error' as const, error: errs[0]?.error || 'فشل' }
+                            : p))
+                }
+            } catch (e: any) {
+                failCount++
+                const msg = e?.response?.data?.detail || 'فشل الرفع'
+                setUploadItems(prev => prev.map(p =>
+                    p.id === item.id ? { ...p, status: 'error' as const, error: msg } : p))
             }
-            queryClient.invalidateQueries({ queryKey: ['project-detail', projectId] })
-        } catch (e: any) {
-            toast.error(e?.response?.data?.detail || 'فشل الرفع')
-        } finally {
-            setUploading(false)
-            if (fileInputRef.current) fileInputRef.current.value = ''
         }
+
+        await queryClient.invalidateQueries({ queryKey: ['project-detail', projectId] })
+        if (okCount > 0) toast.success(`تم رفع ${okCount} صورة`)
+        if (failCount > 0) toast.error(`فشل رفع ${failCount} صورة`)
+        setUploading(false)
+        if (fileInputRef.current) fileInputRef.current.value = ''
+
+        // Auto-clear completed items shortly after to keep the panel tidy.
+        window.setTimeout(() => {
+            setUploadItems(prev => prev.filter(p => p.status !== 'done'))
+        }, 2200)
     }
 
     const deleteImageMut = useMutation({
@@ -235,6 +288,27 @@ export default function ProjectFormPage() {
         },
         onError: () => toast.error('فشلت العملية'),
     })
+
+    const reorderMut = useMutation({
+        mutationFn: (orderedIds: number[]) =>
+            projectsAPI.reorderImages(projectId!, orderedIds),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['project-detail', projectId] })
+        },
+        onError: () => toast.error('فشل تغيير الترتيب'),
+    })
+
+    const moveImage = (sourceId: number, targetId: number) => {
+        if (sourceId === targetId) return
+        const ids = (project?.images || []).map(im => im.id)
+        const from = ids.indexOf(sourceId)
+        const to = ids.indexOf(targetId)
+        if (from < 0 || to < 0) return
+        const next = ids.slice()
+        next.splice(from, 1)
+        next.splice(to, 0, sourceId)
+        reorderMut.mutate(next)
+    }
 
     // ── Render ─────────────────────────────────────────────────────
     if (isEdit && isLoading) {
@@ -271,23 +345,36 @@ export default function ProjectFormPage() {
                         {isEdit ? 'تعديل مشروع' : 'إضافة مشروع جديد'}
                     </h1>
                 </div>
-                <button
-                    onClick={handleSave}
-                    disabled={saveMut.isPending}
-                    className="btn-primary"
-                    style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 8,
-                        padding: '10px 20px', fontSize: 14, fontWeight: 600,
-                    }}
-                >
-                    {saveMut.isPending
-                        ? <Loader2 size={15} className="spin" />
-                        : <Save size={15} strokeWidth={2} />}
-                    حفظ
-                </button>
+                {canEdit && (
+                    <button
+                        onClick={handleSave}
+                        disabled={saveMut.isPending}
+                        className="btn-primary"
+                        style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 8,
+                            padding: '10px 20px', fontSize: 14, fontWeight: 600,
+                        }}
+                    >
+                        {saveMut.isPending
+                            ? <Loader2 size={15} className="spin" />
+                            : <Save size={15} strokeWidth={2} />}
+                        حفظ
+                    </button>
+                )}
             </div>
 
-            {!isEdit && (
+            {!canEdit && (
+                <div style={{
+                    background: 'rgba(120,120,120,0.08)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 8, padding: '10px 14px', marginBottom: 20,
+                    fontSize: 13, color: 'var(--color-text-secondary)',
+                }}>
+                    عرض للقراءة فقط. التعديل متاح لمدير القسم أو مدير النظام.
+                </div>
+            )}
+
+            {canEdit && !isEdit && (
                 <div style={{
                     background: 'rgba(200,168,75,0.10)',
                     border: '1px solid rgba(200,168,75,0.35)',
@@ -496,14 +583,57 @@ export default function ProjectFormPage() {
                 )}
             </Section>
 
-            {/* ── Section: Images (after first save) ── */}
-            {isEdit && projectId && (
+            {/* Read-only gallery for users without edit rights */}
+            {isEdit && projectId && !canEdit && (project?.images?.length ?? 0) > 0 && (
                 <Section title="صور المشروع">
                     <div style={{
-                        marginBottom: 14, padding: 12,
-                        border: '1px dashed var(--color-border)',
-                        borderRadius: 8, background: 'var(--color-surface)',
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                        gap: 10,
                     }}>
+                        {(project?.images || []).map(img => (
+                            <div key={img.id} style={{
+                                border: img.is_cover ? '2px solid var(--color-gold)' : '1px solid var(--color-border)',
+                                borderRadius: 8, overflow: 'hidden',
+                                background: 'var(--color-surface)',
+                            }}>
+                                <div style={{ aspectRatio: '4 / 3', overflow: 'hidden' }}>
+                                    <img src={img.image_url} alt={img.alt_text}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </Section>
+            )}
+
+            {/* ── Section: Images (after first save) ── */}
+            {isEdit && projectId && canEdit && (
+                <Section title="صور المشروع">
+                    {/* Drop zone */}
+                    <div
+                        onDragOver={e => { e.preventDefault(); setDropActive(true) }}
+                        onDragEnter={e => { e.preventDefault(); setDropActive(true) }}
+                        onDragLeave={() => setDropActive(false)}
+                        onDrop={e => {
+                            e.preventDefault()
+                            setDropActive(false)
+                            if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+                                handleFiles(e.dataTransfer.files)
+                            }
+                        }}
+                        onClick={() => !uploading && fileInputRef.current?.click()}
+                        style={{
+                            marginBottom: 14, padding: '24px 16px',
+                            border: dropActive
+                                ? '2px dashed var(--color-gold)'
+                                : '2px dashed var(--color-border)',
+                            borderRadius: 10,
+                            background: dropActive ? 'rgba(200,168,75,0.08)' : 'var(--color-surface)',
+                            textAlign: 'center', cursor: uploading ? 'not-allowed' : 'pointer',
+                            transition: 'background 0.15s, border-color 0.15s',
+                        }}
+                    >
                         <input
                             ref={fileInputRef}
                             type="file"
@@ -512,25 +642,77 @@ export default function ProjectFormPage() {
                             onChange={e => handleFiles(e.target.files)}
                             style={{ display: 'none' }}
                         />
-                        <button
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={uploading}
-                            className="btn-primary"
-                            style={{
-                                display: 'inline-flex', alignItems: 'center', gap: 8,
-                                padding: '8px 16px', fontSize: 13, fontWeight: 600,
-                            }}
-                        >
-                            {uploading
-                                ? <Loader2 size={14} className="spin" />
-                                : <Upload size={14} strokeWidth={2} />}
-                            رفع صور
-                        </button>
-                        <span style={{ marginRight: 12, fontSize: 12, color: 'var(--color-text-muted)' }}>
+                        <Upload size={28} strokeWidth={1.6}
+                            style={{ color: 'var(--color-gold)', marginBottom: 8 }} />
+                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                            اسحب الصور هنا أو انقر للاختيار
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>
                             JPG / PNG / WEBP — الحد الأقصى 10MB لكل صورة
-                        </span>
+                        </div>
+                        {uploading && (
+                            <div style={{
+                                marginTop: 10, fontSize: 12, color: 'var(--color-gold)',
+                                display: 'inline-flex', alignItems: 'center', gap: 6,
+                            }}>
+                                <Loader2 size={12} className="spin" />
+                                جاري الرفع…
+                            </div>
+                        )}
                     </div>
+
+                    {/* Per-file progress list */}
+                    {uploadItems.length > 0 && (
+                        <div style={{
+                            display: 'flex', flexDirection: 'column', gap: 6,
+                            marginBottom: 14,
+                        }}>
+                            {uploadItems.map(it => (
+                                <div key={it.id} style={{
+                                    background: 'var(--color-surface)',
+                                    border: '1px solid var(--color-border)',
+                                    borderRadius: 6, padding: '6px 10px',
+                                }}>
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center',
+                                        justifyContent: 'space-between', gap: 10,
+                                        marginBottom: 4,
+                                    }}>
+                                        <span style={{
+                                            fontSize: 12, color: 'var(--color-text-primary)',
+                                            overflow: 'hidden', textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap', maxWidth: '70%',
+                                        }}>
+                                            {it.name}
+                                        </span>
+                                        <span style={{
+                                            fontSize: 11,
+                                            color: it.status === 'error' ? '#EF4444'
+                                                : it.status === 'done' ? 'var(--color-gold)'
+                                                    : 'var(--color-text-secondary)',
+                                            fontWeight: 600,
+                                        }}>
+                                            {it.status === 'error'
+                                                ? (it.error || 'فشل')
+                                                : it.status === 'done' ? 'تم'
+                                                    : `${it.pct}%`}
+                                        </span>
+                                    </div>
+                                    <div style={{
+                                        height: 4, background: 'var(--color-border)',
+                                        borderRadius: 2, overflow: 'hidden',
+                                    }}>
+                                        <div style={{
+                                            height: '100%', width: `${it.pct}%`,
+                                            background: it.status === 'error'
+                                                ? '#EF4444' : 'var(--color-gold)',
+                                            transition: 'width 0.2s ease',
+                                        }} />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
 
                     {(project?.images?.length ?? 0) === 0 ? (
                         <div style={{
@@ -548,12 +730,46 @@ export default function ProjectFormPage() {
                             gap: 10,
                         }}>
                             {(project?.images || []).map(img => (
-                                <div key={img.id} style={{
-                                    position: 'relative',
-                                    border: img.is_cover ? '2px solid var(--color-gold)' : '1px solid var(--color-border)',
-                                    borderRadius: 8, overflow: 'hidden',
-                                    background: 'var(--color-surface)',
-                                }}>
+                                <div
+                                    key={img.id}
+                                    draggable
+                                    onDragStart={() => setDragImageId(img.id)}
+                                    onDragOver={e => {
+                                        e.preventDefault()
+                                        if (dragImageId !== null && dragImageId !== img.id) {
+                                            setDragOverId(img.id)
+                                        }
+                                    }}
+                                    onDragLeave={() => {
+                                        if (dragOverId === img.id) setDragOverId(null)
+                                    }}
+                                    onDrop={e => {
+                                        e.preventDefault()
+                                        if (dragImageId !== null) {
+                                            moveImage(dragImageId, img.id)
+                                        }
+                                        setDragImageId(null)
+                                        setDragOverId(null)
+                                    }}
+                                    onDragEnd={() => {
+                                        setDragImageId(null)
+                                        setDragOverId(null)
+                                    }}
+                                    title="اسحب لإعادة الترتيب"
+                                    style={{
+                                        position: 'relative',
+                                        border: img.is_cover
+                                            ? '2px solid var(--color-gold)'
+                                            : dragOverId === img.id
+                                                ? '2px dashed var(--color-gold)'
+                                                : '1px solid var(--color-border)',
+                                        borderRadius: 8, overflow: 'hidden',
+                                        background: 'var(--color-surface)',
+                                        cursor: 'grab',
+                                        opacity: dragImageId === img.id ? 0.45 : 1,
+                                        transition: 'opacity 0.15s, border-color 0.15s',
+                                    }}
+                                >
                                     <div style={{ aspectRatio: '4 / 3', overflow: 'hidden' }}>
                                         <img src={img.image_url} alt={img.alt_text}
                                             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />

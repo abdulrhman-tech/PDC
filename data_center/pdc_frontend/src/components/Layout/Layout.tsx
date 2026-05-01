@@ -27,7 +27,7 @@ const navItems = [
     { to: '/users',       label: 'إدارة المستخدمين', icon: Users,       key: 'users',       needsAdmin: true },
     { to: '/categories',  label: 'إدارة التصنيفات',      icon: Layers,      key: 'categories',  needsAdmin: true },
     { to: '/decorative-generator', label: 'توليد صور ديكورية', icon: Wand2, key: 'decorative-generator', needsAdmin: true },
-    { to: '/projects', label: 'مشاريعنا', icon: Building2, key: 'projects', needsManager: true },
+    { to: '/projects', label: 'مشاريعنا', icon: Building2, key: 'projects' },
     { to: '/sap-integration', label: 'ربط SAP', icon: Link2, key: 'sap-integration', needsAdmin: true },
     { to: '/settings',    label: 'الإعدادات',          icon: Settings2,   key: 'settings',    needsAdmin: true },
 ]

@@ -256,14 +256,12 @@ export default function App() {
                         }
                     />
 
-                    {/* Screen 16: Our Projects — manager + admin (UI gates buttons) */}
+                    {/* Screen 16: Our Projects — every authenticated user can view; pages gate the action buttons by role */}
                     <Route
                         path="projects"
                         element={
                             <RequireAuth>
-                                <RequireManagerOrAdmin>
-                                    <ProjectsListPage />
-                                </RequireManagerOrAdmin>
+                                <ProjectsListPage />
                             </RequireAuth>
                         }
                     />
@@ -271,9 +269,7 @@ export default function App() {
                         path="projects/new"
                         element={
                             <RequireAuth>
-                                <RequireManagerOrAdmin>
-                                    <ProjectFormPage />
-                                </RequireManagerOrAdmin>
+                                <ProjectFormPage />
                             </RequireAuth>
                         }
                     />
@@ -281,9 +277,7 @@ export default function App() {
                         path="projects/:id/edit"
                         element={
                             <RequireAuth>
-                                <RequireManagerOrAdmin>
-                                    <ProjectFormPage />
-                                </RequireManagerOrAdmin>
+                                <ProjectFormPage />
                             </RequireAuth>
                         }
                     />

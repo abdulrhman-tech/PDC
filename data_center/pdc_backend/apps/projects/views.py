@@ -270,7 +270,7 @@ def projects_for_product(request, product_id: int):
     """
     qs = (
         Project.objects.filter(is_active=True, products__id=product_id)
-        .prefetch_related('images')
+        .prefetch_related('images', 'products')
         .order_by('sort_order', '-created_at')
         .distinct()
     )

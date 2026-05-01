@@ -3,8 +3,9 @@
  * Renders nothing when there are no active projects for this product.
  */
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, MapPin, X, ChevronRight, ChevronLeft } from 'lucide-react'
+import { Building2, MapPin, X, ChevronRight, ChevronLeft, ExternalLink } from 'lucide-react'
 import { projectsAPI } from '@/api/client'
 import type { ProjectPublic } from '@/types'
 
@@ -267,6 +268,64 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                                 whiteSpace: 'pre-wrap',
                             }}>
                                 {pickDesc(openProject)}
+                            </div>
+                        )}
+
+                        {/* Linked products */}
+                        {openProject.products && openProject.products.length > 0 && (
+                            <div style={{
+                                padding: '14px 18px',
+                                borderTop: '1px solid var(--color-border)',
+                            }}>
+                                <div style={{
+                                    fontSize: 13, fontWeight: 700,
+                                    color: 'var(--color-text-primary)',
+                                    marginBottom: 10,
+                                }}>
+                                    {isAr ? 'المنتجات المستخدمة في هذا المشروع' : 'Products used in this project'}
+                                </div>
+                                <div style={{
+                                    display: 'flex', flexWrap: 'wrap', gap: 8,
+                                }}>
+                                    {openProject.products.map(prod => {
+                                        const label = isAr
+                                            ? (prod.product_name_ar || prod.product_name_en || prod.sku)
+                                            : (prod.product_name_en || prod.product_name_ar || prod.sku)
+                                        return (
+                                            <Link
+                                                key={prod.id}
+                                                to={`/products/${prod.id}`}
+                                                onClick={() => setOpenId(null)}
+                                                style={{
+                                                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                                                    padding: '6px 10px',
+                                                    background: 'var(--color-surface)',
+                                                    border: '1px solid var(--color-border)',
+                                                    borderRadius: 16,
+                                                    fontSize: 12,
+                                                    color: 'var(--color-text-primary)',
+                                                    textDecoration: 'none',
+                                                    transition: 'background 0.15s, border-color 0.15s',
+                                                }}
+                                                onMouseEnter={e => {
+                                                    e.currentTarget.style.background = 'var(--color-surface-hover)'
+                                                    e.currentTarget.style.borderColor = 'var(--color-gold)'
+                                                }}
+                                                onMouseLeave={e => {
+                                                    e.currentTarget.style.background = 'var(--color-surface)'
+                                                    e.currentTarget.style.borderColor = 'var(--color-border)'
+                                                }}
+                                                title={prod.sku}
+                                            >
+                                                <ExternalLink size={11} strokeWidth={1.8} />
+                                                <span style={{
+                                                    maxWidth: 240, overflow: 'hidden',
+                                                    textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                }}>{label}</span>
+                                            </Link>
+                                        )
+                                    })}
+                                </div>
                             </div>
                         )}
                     </div>

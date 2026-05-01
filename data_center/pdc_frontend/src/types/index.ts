@@ -338,4 +338,5 @@ export interface ProjectPublic {
     location_en: string
     project_year: number | null
     images: Array<{ id: number; image_url: string; alt_text: string; is_cover: boolean }>
+    products: Array<{ id: number; sku: string; product_name_ar: string; product_name_en: string }>
 }
