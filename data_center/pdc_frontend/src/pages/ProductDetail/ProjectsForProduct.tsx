@@ -2,10 +2,10 @@
  * Projects gallery shown on a public product page.
  * Renders nothing when there are no active projects for this product.
  */
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, MapPin, X, ChevronRight, ChevronLeft, ExternalLink } from 'lucide-react'
+import { Building2, MapPin, Calendar, X, ChevronRight, ChevronLeft, ExternalLink, Package } from 'lucide-react'
 import { projectsAPI } from '@/api/client'
 import type { ProjectPublic } from '@/types'
 
@@ -24,11 +24,37 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
         enabled: !!productId && !Number.isNaN(productId),
     })
 
-    if (isLoading) return null
     const projects = Array.isArray(data) ? data : []
-    if (projects.length === 0) return null
-
     const openProject = projects.find(p => p.id === openId) || null
+    const totalImages = openProject?.images.length ?? 0
+
+    const close = useCallback(() => setOpenId(null), [])
+    const next = useCallback(() => {
+        if (totalImages > 1) setOpenIndex(i => (i + 1) % totalImages)
+    }, [totalImages])
+    const prev = useCallback(() => {
+        if (totalImages > 1) setOpenIndex(i => (i - 1 + totalImages) % totalImages)
+    }, [totalImages])
+
+    // Keyboard navigation + body-scroll lock while modal is open
+    useEffect(() => {
+        if (!openProject) return
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') close()
+            else if (e.key === 'ArrowRight') isAr ? next() : prev()
+            else if (e.key === 'ArrowLeft') isAr ? prev() : next()
+        }
+        const prevOverflow = document.body.style.overflow
+        document.body.style.overflow = 'hidden'
+        window.addEventListener('keydown', onKey)
+        return () => {
+            window.removeEventListener('keydown', onKey)
+            document.body.style.overflow = prevOverflow
+        }
+    }, [openProject, close, next, prev, isAr])
+
+    if (isLoading) return null
+    if (projects.length === 0) return null
 
     const pickName = (p: ProjectPublic) =>
         isAr ? (p.name_ar || p.name_en) : (p.name_en || p.name_ar)
@@ -138,196 +164,287 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
             {/* ── Lightbox ── */}
             {openProject && (
                 <div
-                    onClick={() => setOpenId(null)}
+                    onClick={close}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={pickName(openProject)}
                     style={{
                         position: 'fixed', inset: 0, zIndex: 1000,
-                        background: 'rgba(0,0,0,0.85)',
+                        background: 'rgba(8, 10, 14, 0.92)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        padding: 20,
+                        padding: '24px 16px',
+                        backdropFilter: 'blur(4px)',
                     }}
                 >
                     <div
                         onClick={e => e.stopPropagation()}
                         style={{
-                            background: 'var(--color-surface-raised)',
-                            borderRadius: 12, maxWidth: 980, width: '100%',
-                            maxHeight: '92vh', overflow: 'auto',
+                            background: '#1a1d24',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: 14,
+                            boxShadow: '0 30px 80px rgba(0,0,0,0.6)',
+                            maxWidth: 960, width: '100%',
+                            maxHeight: 'calc(100vh - 48px)',
                             display: 'flex', flexDirection: 'column',
+                            overflow: 'hidden',
                         }}
                     >
+                        {/* Header */}
                         <div style={{
-                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                            padding: '14px 18px', borderBottom: '1px solid var(--color-border)',
+                            display: 'flex', alignItems: 'flex-start',
+                            justifyContent: 'space-between',
+                            gap: 12,
+                            padding: '16px 20px',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
+                            background: 'linear-gradient(180deg, rgba(255,255,255,0.03), transparent)',
+                            flex: '0 0 auto',
                         }}>
-                            <div>
+                            <div style={{ minWidth: 0, flex: 1 }}>
                                 <div style={{
-                                    fontSize: 16, fontWeight: 700,
-                                    color: 'var(--color-text-primary)',
+                                    fontSize: 17, fontWeight: 700,
+                                    color: '#fff',
+                                    lineHeight: 1.3,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
                                 }}>
                                     {pickName(openProject)}
                                 </div>
-                                {pickLoc(openProject) && (
+                                {(pickLoc(openProject) || openProject.project_year) && (
                                     <div style={{
-                                        fontSize: 12, color: 'var(--color-text-secondary)',
-                                        display: 'flex', alignItems: 'center', gap: 4, marginTop: 2,
+                                        fontSize: 12.5, color: 'rgba(255,255,255,0.65)',
+                                        display: 'flex', alignItems: 'center',
+                                        gap: 14, marginTop: 6, flexWrap: 'wrap',
                                     }}>
-                                        <MapPin size={11} strokeWidth={1.8} />
-                                        {pickLoc(openProject)}
-                                        {openProject.project_year ? ` • ${openProject.project_year}` : ''}
+                                        {pickLoc(openProject) && (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                                <MapPin size={12} strokeWidth={1.8} />
+                                                {pickLoc(openProject)}
+                                            </span>
+                                        )}
+                                        {openProject.project_year && (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                                <Calendar size={12} strokeWidth={1.8} />
+                                                {openProject.project_year}
+                                            </span>
+                                        )}
                                     </div>
                                 )}
                             </div>
                             <button
                                 type="button"
-                                onClick={() => setOpenId(null)}
+                                onClick={close}
                                 style={{
-                                    background: 'transparent', border: 'none', cursor: 'pointer',
-                                    color: 'var(--color-text-secondary)', padding: 6,
+                                    flex: '0 0 auto',
+                                    width: 36, height: 36,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    background: 'rgba(255,255,255,0.06)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '50%',
+                                    color: '#fff', cursor: 'pointer',
+                                    transition: 'background 0.15s',
                                 }}
-                                aria-label="إغلاق"
+                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
+                                aria-label={isAr ? 'إغلاق' : 'Close'}
                             >
-                                <X size={18} strokeWidth={1.8} />
+                                <X size={18} strokeWidth={2} />
                             </button>
                         </div>
 
-                        {/* Main image with prev/next */}
-                        {openProject.images.length > 0 && (
-                            <div style={{
-                                position: 'relative', width: '100%',
-                                background: '#000', display: 'flex',
-                                alignItems: 'center', justifyContent: 'center',
-                                minHeight: 320, maxHeight: '60vh',
-                            }}>
-                                <img
-                                    src={openProject.images[openIndex]?.image_url}
-                                    alt={openProject.images[openIndex]?.alt_text || pickName(openProject)}
-                                    style={{
-                                        maxWidth: '100%', maxHeight: '60vh',
-                                        objectFit: 'contain', display: 'block',
-                                    }}
-                                />
-                                {openProject.images.length > 1 && (
-                                    <>
-                                        <button
-                                            type="button"
-                                            onClick={() => setOpenIndex(i =>
-                                                (i - 1 + openProject.images.length) % openProject.images.length)}
-                                            style={navBtnStyle('right')}
-                                            aria-label="السابق"
-                                        >
-                                            <ChevronRight size={20} strokeWidth={2} />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setOpenIndex(i =>
-                                                (i + 1) % openProject.images.length)}
-                                            style={navBtnStyle('left')}
-                                            aria-label="التالي"
-                                        >
-                                            <ChevronLeft size={20} strokeWidth={2} />
-                                        </button>
-                                    </>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Thumbnails */}
-                        {openProject.images.length > 1 && (
-                            <div style={{
-                                display: 'flex', gap: 6, padding: 10,
-                                overflowX: 'auto',
-                                borderBottom: pickDesc(openProject) ? '1px solid var(--color-border)' : 'none',
-                            }}>
-                                {openProject.images.map((im, idx) => (
-                                    <button
-                                        key={im.id}
-                                        type="button"
-                                        onClick={() => setOpenIndex(idx)}
+                        {/* Scrollable body */}
+                        <div style={{
+                            overflowY: 'auto',
+                            flex: '1 1 auto',
+                            display: 'flex', flexDirection: 'column',
+                        }}>
+                            {/* Image stage */}
+                            {totalImages > 0 && (
+                                <div style={{
+                                    position: 'relative',
+                                    width: '100%',
+                                    background: '#000',
+                                    display: 'flex',
+                                    alignItems: 'center', justifyContent: 'center',
+                                    aspectRatio: '16 / 10',
+                                    maxHeight: '62vh',
+                                    overflow: 'hidden',
+                                }}>
+                                    <img
+                                        src={openProject.images[openIndex]?.image_url}
+                                        alt={openProject.images[openIndex]?.alt_text || pickName(openProject)}
                                         style={{
-                                            flex: '0 0 auto',
-                                            width: 70, height: 50,
-                                            border: idx === openIndex
-                                                ? '2px solid var(--color-gold)'
-                                                : '2px solid transparent',
-                                            borderRadius: 6, overflow: 'hidden',
-                                            padding: 0, cursor: 'pointer', background: 'transparent',
+                                            maxWidth: '100%', maxHeight: '100%',
+                                            objectFit: 'contain', display: 'block',
                                         }}
-                                    >
-                                        <img src={im.image_url} alt=""
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                                    </button>
-                                ))}
-                            </div>
-                        )}
+                                    />
 
-                        {pickDesc(openProject) && (
-                            <div style={{
-                                padding: '14px 18px',
-                                color: 'var(--color-text-primary)',
-                                fontSize: 14, lineHeight: 1.7,
-                                whiteSpace: 'pre-wrap',
-                            }}>
-                                {pickDesc(openProject)}
-                            </div>
-                        )}
-
-                        {/* Linked products */}
-                        {openProject.products && openProject.products.length > 0 && (
-                            <div style={{
-                                padding: '14px 18px',
-                                borderTop: '1px solid var(--color-border)',
-                            }}>
-                                <div style={{
-                                    fontSize: 13, fontWeight: 700,
-                                    color: 'var(--color-text-primary)',
-                                    marginBottom: 10,
-                                }}>
-                                    {isAr ? 'المنتجات المستخدمة في هذا المشروع' : 'Products used in this project'}
-                                </div>
-                                <div style={{
-                                    display: 'flex', flexWrap: 'wrap', gap: 8,
-                                }}>
-                                    {openProject.products.map(prod => {
-                                        const label = isAr
-                                            ? (prod.product_name_ar || prod.product_name_en || prod.sku)
-                                            : (prod.product_name_en || prod.product_name_ar || prod.sku)
-                                        return (
-                                            <Link
-                                                key={prod.id}
-                                                to={`/products/${prod.id}`}
-                                                onClick={() => setOpenId(null)}
-                                                style={{
-                                                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                                                    padding: '6px 10px',
-                                                    background: 'var(--color-surface)',
-                                                    border: '1px solid var(--color-border)',
-                                                    borderRadius: 16,
-                                                    fontSize: 12,
-                                                    color: 'var(--color-text-primary)',
-                                                    textDecoration: 'none',
-                                                    transition: 'background 0.15s, border-color 0.15s',
-                                                }}
-                                                onMouseEnter={e => {
-                                                    e.currentTarget.style.background = 'var(--color-surface-hover)'
-                                                    e.currentTarget.style.borderColor = 'var(--color-gold)'
-                                                }}
-                                                onMouseLeave={e => {
-                                                    e.currentTarget.style.background = 'var(--color-surface)'
-                                                    e.currentTarget.style.borderColor = 'var(--color-border)'
-                                                }}
-                                                title={prod.sku}
+                                    {totalImages > 1 && (
+                                        <>
+                                            {/* Previous (in RTL pages, "previous" sits on the right) */}
+                                            <button
+                                                type="button"
+                                                onClick={prev}
+                                                style={navBtnStyle(isAr ? 'right' : 'left')}
+                                                aria-label={isAr ? 'السابق' : 'Previous'}
                                             >
-                                                <ExternalLink size={11} strokeWidth={1.8} />
-                                                <span style={{
-                                                    maxWidth: 240, overflow: 'hidden',
-                                                    textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                                }}>{label}</span>
-                                            </Link>
-                                        )
-                                    })}
+                                                {isAr ? <ChevronRight size={22} strokeWidth={2} /> : <ChevronLeft size={22} strokeWidth={2} />}
+                                            </button>
+                                            {/* Next */}
+                                            <button
+                                                type="button"
+                                                onClick={next}
+                                                style={navBtnStyle(isAr ? 'left' : 'right')}
+                                                aria-label={isAr ? 'التالي' : 'Next'}
+                                            >
+                                                {isAr ? <ChevronLeft size={22} strokeWidth={2} /> : <ChevronRight size={22} strokeWidth={2} />}
+                                            </button>
+
+                                            {/* Counter */}
+                                            <div style={{
+                                                position: 'absolute',
+                                                bottom: 12,
+                                                insetInlineStart: '50%',
+                                                transform: 'translateX(-50%)',
+                                                background: 'rgba(0,0,0,0.6)',
+                                                color: '#fff',
+                                                fontSize: 12, fontWeight: 600,
+                                                padding: '4px 10px',
+                                                borderRadius: 12,
+                                                pointerEvents: 'none',
+                                                letterSpacing: 0.3,
+                                            }}>
+                                                {openIndex + 1} / {totalImages}
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
-                            </div>
-                        )}
+                            )}
+
+                            {/* Thumbnails strip */}
+                            {totalImages > 1 && (
+                                <div style={{
+                                    display: 'flex',
+                                    gap: 8,
+                                    padding: '12px 16px',
+                                    overflowX: 'auto',
+                                    justifyContent: totalImages <= 6 ? 'center' : 'flex-start',
+                                    background: '#15181f',
+                                    borderBottom: '1px solid rgba(255,255,255,0.06)',
+                                }}>
+                                    {openProject.images.map((im, idx) => (
+                                        <button
+                                            key={im.id}
+                                            type="button"
+                                            onClick={() => setOpenIndex(idx)}
+                                            style={{
+                                                flex: '0 0 auto',
+                                                width: 84, height: 60,
+                                                border: idx === openIndex
+                                                    ? '2px solid var(--color-gold)'
+                                                    : '2px solid transparent',
+                                                borderRadius: 6, overflow: 'hidden',
+                                                padding: 0, cursor: 'pointer',
+                                                background: 'transparent',
+                                                opacity: idx === openIndex ? 1 : 0.6,
+                                                transition: 'opacity 0.15s, border-color 0.15s',
+                                            }}
+                                            onMouseEnter={e => { e.currentTarget.style.opacity = '1' }}
+                                            onMouseLeave={e => {
+                                                e.currentTarget.style.opacity = idx === openIndex ? '1' : '0.6'
+                                            }}
+                                            aria-label={`${isAr ? 'صورة' : 'Image'} ${idx + 1}`}
+                                        >
+                                            <img src={im.image_url} alt=""
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Description */}
+                            {pickDesc(openProject) && (
+                                <div style={{
+                                    padding: '18px 22px',
+                                    color: 'rgba(255,255,255,0.88)',
+                                    fontSize: 14, lineHeight: 1.8,
+                                    whiteSpace: 'pre-wrap',
+                                }}>
+                                    {pickDesc(openProject)}
+                                </div>
+                            )}
+
+                            {/* Linked products */}
+                            {openProject.products && openProject.products.length > 0 && (
+                                <div style={{
+                                    padding: '16px 22px 20px',
+                                    borderTop: pickDesc(openProject)
+                                        ? '1px solid rgba(255,255,255,0.06)'
+                                        : 'none',
+                                    background: 'rgba(255,255,255,0.02)',
+                                }}>
+                                    <div style={{
+                                        fontSize: 12.5, fontWeight: 700,
+                                        color: 'rgba(255,255,255,0.6)',
+                                        marginBottom: 12,
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                        letterSpacing: 0.3,
+                                    }}>
+                                        <Package size={13} strokeWidth={1.8} />
+                                        {isAr ? 'المنتجات المستخدمة في هذا المشروع' : 'Products used in this project'}
+                                    </div>
+                                    <div style={{
+                                        display: 'flex', flexWrap: 'wrap', gap: 8,
+                                    }}>
+                                        {openProject.products.map(prod => {
+                                            const label = isAr
+                                                ? (prod.product_name_ar || prod.product_name_en || prod.sku)
+                                                : (prod.product_name_en || prod.product_name_ar || prod.sku)
+                                            const isCurrent = prod.id === productId
+                                            return (
+                                                <Link
+                                                    key={prod.id}
+                                                    to={`/products/${prod.id}`}
+                                                    onClick={close}
+                                                    style={{
+                                                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                                                        padding: '7px 12px',
+                                                        background: isCurrent
+                                                            ? 'rgba(200,168,75,0.15)'
+                                                            : 'rgba(255,255,255,0.05)',
+                                                        border: `1px solid ${isCurrent
+                                                            ? 'rgba(200,168,75,0.5)'
+                                                            : 'rgba(255,255,255,0.1)'}`,
+                                                        borderRadius: 18,
+                                                        fontSize: 12.5,
+                                                        color: isCurrent ? 'var(--color-gold)' : '#fff',
+                                                        textDecoration: 'none',
+                                                        transition: 'background 0.15s, border-color 0.15s',
+                                                    }}
+                                                    onMouseEnter={e => {
+                                                        if (isCurrent) return
+                                                        e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+                                                        e.currentTarget.style.borderColor = 'rgba(200,168,75,0.6)'
+                                                    }}
+                                                    onMouseLeave={e => {
+                                                        if (isCurrent) return
+                                                        e.currentTarget.style.background = 'rgba(255,255,255,0.05)'
+                                                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
+                                                    }}
+                                                    title={prod.sku}
+                                                >
+                                                    <ExternalLink size={11} strokeWidth={1.8} />
+                                                    <span style={{
+                                                        maxWidth: 240, overflow: 'hidden',
+                                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                    }}>{label}</span>
+                                                </Link>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -338,11 +455,15 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
 function navBtnStyle(side: 'left' | 'right'): React.CSSProperties {
     return {
         position: 'absolute', top: '50%', transform: 'translateY(-50%)',
-        [side]: 12,
-        background: 'rgba(0,0,0,0.55)', color: '#fff',
-        border: 'none', borderRadius: '50%',
-        width: 40, height: 40,
+        [side]: 14,
+        background: 'rgba(0,0,0,0.55)',
+        color: '#fff',
+        border: '1px solid rgba(255,255,255,0.15)',
+        borderRadius: '50%',
+        width: 44, height: 44,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         cursor: 'pointer',
+        backdropFilter: 'blur(4px)',
+        transition: 'background 0.15s',
     } as React.CSSProperties
 }
