@@ -140,10 +140,21 @@ class ProjectPublicImageSerializer(serializers.ModelSerializer):
 
 class ProjectPublicProductSerializer(serializers.ModelSerializer):
     """Minimal product info shown inside the public project modal."""
+    main_image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Product
-        fields = ['id', 'sku', 'product_name_ar', 'product_name_en']
+        fields = ['id', 'sku', 'product_name_ar', 'product_name_en', 'main_image_url']
         read_only_fields = fields
+
+    def get_main_image_url(self, obj):
+        approved = [i for i in obj.images.all() if i.status == 'approved']
+        if not approved:
+            return None
+        img = next((i for i in approved if i.image_type == 'main'), None)
+        if img is None:
+            img = sorted(approved, key=lambda i: (i.order, i.id))[0]
+        return img.get_display_url()
 
 
 class ProjectPublicSerializer(serializers.ModelSerializer):

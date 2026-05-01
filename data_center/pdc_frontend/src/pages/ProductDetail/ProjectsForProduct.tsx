@@ -1,11 +1,17 @@
 /**
  * Projects gallery shown on a public product page.
  * Renders nothing when there are no active projects for this product.
+ * The lightbox is mounted via React Portal at document.body to avoid
+ * z-index / overflow clipping from parent containers.
  */
 import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, MapPin, Calendar, X, ChevronRight, ChevronLeft, ExternalLink, Package } from 'lucide-react'
+import {
+    Building2, MapPin, Calendar, X,
+    ChevronRight, ChevronLeft, Package,
+} from 'lucide-react'
 import { projectsAPI } from '@/api/client'
 import type { ProjectPublic } from '@/types'
 
@@ -36,7 +42,6 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
         if (totalImages > 1) setOpenIndex(i => (i - 1 + totalImages) % totalImages)
     }, [totalImages])
 
-    // Keyboard navigation + body-scroll lock while modal is open
     useEffect(() => {
         if (!openProject) return
         const onKey = (e: KeyboardEvent) => {
@@ -44,12 +49,12 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
             else if (e.key === 'ArrowRight') isAr ? next() : prev()
             else if (e.key === 'ArrowLeft') isAr ? prev() : next()
         }
-        const prevOverflow = document.body.style.overflow
+        const prev_ = document.body.style.overflow
         document.body.style.overflow = 'hidden'
         window.addEventListener('keydown', onKey)
         return () => {
             window.removeEventListener('keydown', onKey)
-            document.body.style.overflow = prevOverflow
+            document.body.style.overflow = prev_
         }
     }, [openProject, close, next, prev, isAr])
 
@@ -62,9 +67,14 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
         isAr ? (p.location_ar || p.location_en) : (p.location_en || p.location_ar)
     const pickDesc = (p: ProjectPublic) =>
         isAr ? (p.description_ar || p.description_en) : (p.description_en || p.description_ar)
+    const pickProductName = (prod: ProjectPublic['products'][number]) =>
+        isAr
+            ? (prod.product_name_ar || prod.product_name_en || prod.sku)
+            : (prod.product_name_en || prod.product_name_ar || prod.sku)
 
     return (
         <div style={{ marginBottom: 20 }}>
+            {/* Section heading */}
             <div style={{
                 display: 'flex', alignItems: 'center', gap: 8,
                 marginBottom: 12, paddingBottom: 8,
@@ -86,6 +96,7 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                 </span>
             </div>
 
+            {/* Cards grid */}
             <div style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
@@ -120,14 +131,14 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                                 width: '100%', aspectRatio: '4 / 3',
                                 background: 'var(--color-surface)', overflow: 'hidden',
                             }}>
-                                {cover ? (
+                                {cover && (
                                     <img
                                         src={cover.image_url}
                                         alt={cover.alt_text || pickName(p)}
                                         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                                         loading="lazy"
                                     />
-                                ) : null}
+                                )}
                             </div>
                             <div style={{ padding: 10 }}>
                                 <div style={{
@@ -161,30 +172,29 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                 })}
             </div>
 
-            {/* ── Lightbox ── */}
-            {openProject && (
+            {/* ── Lightbox via React Portal ── */}
+            {openProject && createPortal(
                 <div
                     onClick={close}
                     role="dialog"
                     aria-modal="true"
                     aria-label={pickName(openProject)}
                     style={{
-                        position: 'fixed', inset: 0, zIndex: 1000,
-                        background: 'rgba(8, 10, 14, 0.92)',
+                        position: 'fixed', inset: 0, zIndex: 9999,
+                        background: 'rgba(0,0,0,0.85)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        padding: '24px 16px',
-                        backdropFilter: 'blur(4px)',
+                        padding: '20px 16px',
                     }}
                 >
                     <div
                         onClick={e => e.stopPropagation()}
                         style={{
-                            background: '#1a1d24',
-                            border: '1px solid rgba(255,255,255,0.08)',
+                            background: 'var(--color-surface)',
+                            border: '1px solid var(--color-border)',
                             borderRadius: 14,
-                            boxShadow: '0 30px 80px rgba(0,0,0,0.6)',
-                            maxWidth: 960, width: '100%',
-                            maxHeight: 'calc(100vh - 48px)',
+                            boxShadow: '0 24px 60px rgba(0,0,0,0.5), 0 4px 16px rgba(0,0,0,0.3)',
+                            maxWidth: 900, width: '100%',
+                            maxHeight: '90vh',
                             display: 'flex', flexDirection: 'column',
                             overflow: 'hidden',
                         }}
@@ -195,14 +205,13 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                             justifyContent: 'space-between',
                             gap: 12,
                             padding: '16px 20px',
-                            borderBottom: '1px solid rgba(255,255,255,0.08)',
-                            background: 'linear-gradient(180deg, rgba(255,255,255,0.03), transparent)',
+                            borderBottom: '1px solid var(--color-border)',
                             flex: '0 0 auto',
                         }}>
                             <div style={{ minWidth: 0, flex: 1 }}>
                                 <div style={{
                                     fontSize: 17, fontWeight: 700,
-                                    color: '#fff',
+                                    color: 'var(--color-text-primary)',
                                     lineHeight: 1.3,
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
@@ -212,9 +221,10 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                                 </div>
                                 {(pickLoc(openProject) || openProject.project_year) && (
                                     <div style={{
-                                        fontSize: 12.5, color: 'rgba(255,255,255,0.65)',
+                                        fontSize: 12.5,
+                                        color: 'var(--color-text-secondary)',
                                         display: 'flex', alignItems: 'center',
-                                        gap: 14, marginTop: 6, flexWrap: 'wrap',
+                                        gap: 16, marginTop: 6, flexWrap: 'wrap',
                                     }}>
                                         {pickLoc(openProject) && (
                                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -238,14 +248,15 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                                     flex: '0 0 auto',
                                     width: 36, height: 36,
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    background: 'rgba(255,255,255,0.06)',
-                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    background: 'var(--color-surface-raised)',
+                                    border: '1px solid var(--color-border)',
                                     borderRadius: '50%',
-                                    color: '#fff', cursor: 'pointer',
+                                    color: 'var(--color-text-primary)',
+                                    cursor: 'pointer',
                                     transition: 'background 0.15s',
                                 }}
-                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
-                                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
+                                onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-hover, #e5e5e5)' }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-surface-raised)' }}
                                 aria-label={isAr ? 'إغلاق' : 'Close'}
                             >
                                 <X size={18} strokeWidth={2} />
@@ -253,11 +264,8 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                         </div>
 
                         {/* Scrollable body */}
-                        <div style={{
-                            overflowY: 'auto',
-                            flex: '1 1 auto',
-                            display: 'flex', flexDirection: 'column',
-                        }}>
+                        <div style={{ overflowY: 'auto', flex: '1 1 auto', display: 'flex', flexDirection: 'column' }}>
+
                             {/* Image stage */}
                             {totalImages > 0 && (
                                 <div style={{
@@ -266,105 +274,86 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                                     background: '#000',
                                     display: 'flex',
                                     alignItems: 'center', justifyContent: 'center',
-                                    aspectRatio: '16 / 10',
-                                    maxHeight: '62vh',
+                                    aspectRatio: '16 / 9',
+                                    maxHeight: '55vh',
                                     overflow: 'hidden',
+                                    flex: '0 0 auto',
                                 }}>
                                     <img
                                         src={openProject.images[openIndex]?.image_url}
                                         alt={openProject.images[openIndex]?.alt_text || pickName(openProject)}
-                                        style={{
-                                            maxWidth: '100%', maxHeight: '100%',
-                                            objectFit: 'contain', display: 'block',
-                                        }}
+                                        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }}
                                     />
-
                                     {totalImages > 1 && (
                                         <>
-                                            {/* Previous (in RTL pages, "previous" sits on the right) */}
-                                            <button
-                                                type="button"
-                                                onClick={prev}
+                                            <button type="button" onClick={prev}
                                                 style={navBtnStyle(isAr ? 'right' : 'left')}
-                                                aria-label={isAr ? 'السابق' : 'Previous'}
-                                            >
-                                                {isAr ? <ChevronRight size={22} strokeWidth={2} /> : <ChevronLeft size={22} strokeWidth={2} />}
+                                                aria-label={isAr ? 'السابق' : 'Previous'}>
+                                                {isAr
+                                                    ? <ChevronRight size={22} strokeWidth={2.5} />
+                                                    : <ChevronLeft size={22} strokeWidth={2.5} />}
                                             </button>
-                                            {/* Next */}
-                                            <button
-                                                type="button"
-                                                onClick={next}
+                                            <button type="button" onClick={next}
                                                 style={navBtnStyle(isAr ? 'left' : 'right')}
-                                                aria-label={isAr ? 'التالي' : 'Next'}
-                                            >
-                                                {isAr ? <ChevronLeft size={22} strokeWidth={2} /> : <ChevronRight size={22} strokeWidth={2} />}
+                                                aria-label={isAr ? 'التالي' : 'Next'}>
+                                                {isAr
+                                                    ? <ChevronLeft size={22} strokeWidth={2.5} />
+                                                    : <ChevronRight size={22} strokeWidth={2.5} />}
                                             </button>
-
-                                                </>
+                                        </>
                                     )}
                                 </div>
                             )}
 
-                            {/* Thumbnails strip + counter */}
+                            {/* Thumbnails + counter */}
                             {totalImages > 1 && (
                                 <div style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
+                                    display: 'flex', alignItems: 'center', gap: 8,
                                     padding: '10px 16px',
-                                    background: '#15181f',
-                                    borderBottom: '1px solid rgba(255,255,255,0.06)',
+                                    background: 'var(--color-surface-raised)',
+                                    borderBottom: '1px solid var(--color-border)',
+                                    flex: '0 0 auto',
                                 }}>
-                                    {/* Counter badge — always visible, clearly separated from header */}
                                     <div style={{
                                         flex: '0 0 auto',
                                         fontSize: 12, fontWeight: 700,
-                                        color: 'rgba(255,255,255,0.55)',
-                                        background: 'rgba(255,255,255,0.06)',
-                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        color: 'var(--color-text-muted)',
+                                        background: 'var(--color-surface)',
+                                        border: '1px solid var(--color-border)',
                                         borderRadius: 8,
-                                        padding: '5px 10px',
-                                        letterSpacing: 0.5,
+                                        padding: '4px 10px',
+                                        letterSpacing: 0.4,
                                         whiteSpace: 'nowrap',
                                     }}>
                                         {openIndex + 1} / {totalImages}
                                     </div>
-
-                                    {/* Scrollable thumbnail list */}
                                     <div style={{
-                                        display: 'flex',
-                                        gap: 8,
-                                        overflowX: 'auto',
-                                        flex: '1 1 0',
+                                        display: 'flex', gap: 7, overflowX: 'auto', flex: '1 1 0',
                                         justifyContent: totalImages <= 6 ? 'center' : 'flex-start',
                                     }}>
-                                    {openProject.images.map((im, idx) => (
-                                        <button
-                                            key={im.id}
-                                            type="button"
-                                            onClick={() => setOpenIndex(idx)}
-                                            style={{
-                                                flex: '0 0 auto',
-                                                width: 84, height: 60,
-                                                border: idx === openIndex
-                                                    ? '2px solid var(--color-gold)'
-                                                    : '2px solid transparent',
-                                                borderRadius: 6, overflow: 'hidden',
-                                                padding: 0, cursor: 'pointer',
-                                                background: 'transparent',
-                                                opacity: idx === openIndex ? 1 : 0.6,
-                                                transition: 'opacity 0.15s, border-color 0.15s',
-                                            }}
-                                            onMouseEnter={e => { e.currentTarget.style.opacity = '1' }}
-                                            onMouseLeave={e => {
-                                                e.currentTarget.style.opacity = idx === openIndex ? '1' : '0.6'
-                                            }}
-                                            aria-label={`${isAr ? 'صورة' : 'Image'} ${idx + 1}`}
-                                        >
-                                            <img src={im.image_url} alt=""
-                                                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                                        </button>
-                                    ))}
+                                        {openProject.images.map((im, idx) => (
+                                            <button key={im.id} type="button"
+                                                onClick={() => setOpenIndex(idx)}
+                                                style={{
+                                                    flex: '0 0 auto', width: 80, height: 56,
+                                                    border: idx === openIndex
+                                                        ? '2px solid var(--color-gold)'
+                                                        : '2px solid transparent',
+                                                    borderRadius: 6, overflow: 'hidden',
+                                                    padding: 0, cursor: 'pointer',
+                                                    background: 'var(--color-surface)',
+                                                    opacity: idx === openIndex ? 1 : 0.55,
+                                                    transition: 'opacity 0.15s, border-color 0.15s',
+                                                }}
+                                                onMouseEnter={e => { e.currentTarget.style.opacity = '1' }}
+                                                onMouseLeave={e => {
+                                                    e.currentTarget.style.opacity = idx === openIndex ? '1' : '0.55'
+                                                }}
+                                            >
+                                                <img src={im.image_url} alt=""
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
                             )}
@@ -372,10 +361,12 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                             {/* Description */}
                             {pickDesc(openProject) && (
                                 <div style={{
-                                    padding: '18px 22px',
-                                    color: 'rgba(255,255,255,0.88)',
+                                    padding: '16px 20px',
+                                    color: 'var(--color-text-primary)',
                                     fontSize: 14, lineHeight: 1.8,
                                     whiteSpace: 'pre-wrap',
+                                    borderBottom: openProject.products?.length
+                                        ? '1px solid var(--color-border)' : 'none',
                                 }}>
                                     {pickDesc(openProject)}
                                 </div>
@@ -383,30 +374,22 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
 
                             {/* Linked products */}
                             {openProject.products && openProject.products.length > 0 && (
-                                <div style={{
-                                    padding: '16px 22px 20px',
-                                    borderTop: pickDesc(openProject)
-                                        ? '1px solid rgba(255,255,255,0.06)'
-                                        : 'none',
-                                    background: 'rgba(255,255,255,0.02)',
-                                }}>
+                                <div style={{ padding: '16px 20px 20px' }}>
                                     <div style={{
-                                        fontSize: 12.5, fontWeight: 700,
-                                        color: 'rgba(255,255,255,0.6)',
+                                        fontSize: 13, fontWeight: 700,
+                                        color: 'var(--color-text-secondary)',
                                         marginBottom: 12,
                                         display: 'flex', alignItems: 'center', gap: 6,
-                                        letterSpacing: 0.3,
                                     }}>
-                                        <Package size={13} strokeWidth={1.8} />
+                                        <Package size={14} strokeWidth={1.8} style={{ color: 'var(--color-gold)' }} />
                                         {isAr ? 'المنتجات المستخدمة في هذا المشروع' : 'Products used in this project'}
                                     </div>
                                     <div style={{
-                                        display: 'flex', flexWrap: 'wrap', gap: 8,
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                                        gap: 10,
                                     }}>
                                         {openProject.products.map(prod => {
-                                            const label = isAr
-                                                ? (prod.product_name_ar || prod.product_name_en || prod.sku)
-                                                : (prod.product_name_en || prod.product_name_ar || prod.sku)
                                             const isCurrent = prod.id === productId
                                             return (
                                                 <Link
@@ -414,37 +397,73 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                                                     to={`/products/${prod.id}`}
                                                     onClick={close}
                                                     style={{
-                                                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                                                        padding: '7px 12px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 10,
+                                                        padding: '8px 10px',
                                                         background: isCurrent
-                                                            ? 'rgba(200,168,75,0.15)'
-                                                            : 'rgba(255,255,255,0.05)',
+                                                            ? 'rgba(200,168,75,0.08)'
+                                                            : 'var(--color-surface-raised)',
                                                         border: `1px solid ${isCurrent
-                                                            ? 'rgba(200,168,75,0.5)'
-                                                            : 'rgba(255,255,255,0.1)'}`,
-                                                        borderRadius: 18,
-                                                        fontSize: 12.5,
-                                                        color: isCurrent ? 'var(--color-gold)' : '#fff',
+                                                            ? 'rgba(200,168,75,0.45)'
+                                                            : 'var(--color-border)'}`,
+                                                        borderRadius: 8,
                                                         textDecoration: 'none',
-                                                        transition: 'background 0.15s, border-color 0.15s',
+                                                        transition: 'border-color 0.15s, background 0.15s',
+                                                        overflow: 'hidden',
                                                     }}
                                                     onMouseEnter={e => {
-                                                        if (isCurrent) return
-                                                        e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
-                                                        e.currentTarget.style.borderColor = 'rgba(200,168,75,0.6)'
+                                                        if (!isCurrent) {
+                                                            e.currentTarget.style.borderColor = 'var(--color-gold)'
+                                                            e.currentTarget.style.background = 'var(--color-surface)'
+                                                        }
                                                     }}
                                                     onMouseLeave={e => {
-                                                        if (isCurrent) return
-                                                        e.currentTarget.style.background = 'rgba(255,255,255,0.05)'
-                                                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
+                                                        if (!isCurrent) {
+                                                            e.currentTarget.style.borderColor = 'var(--color-border)'
+                                                            e.currentTarget.style.background = 'var(--color-surface-raised)'
+                                                        }
                                                     }}
-                                                    title={prod.sku}
                                                 >
-                                                    <ExternalLink size={11} strokeWidth={1.8} />
-                                                    <span style={{
-                                                        maxWidth: 240, overflow: 'hidden',
-                                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                                    }}>{label}</span>
+                                                    {/* Thumbnail */}
+                                                    <div style={{
+                                                        flex: '0 0 44px', width: 44, height: 44,
+                                                        borderRadius: 6, overflow: 'hidden',
+                                                        background: 'var(--color-surface)',
+                                                        border: '1px solid var(--color-border)',
+                                                    }}>
+                                                        {prod.main_image_url ? (
+                                                            <img
+                                                                src={prod.main_image_url}
+                                                                alt={pickProductName(prod)}
+                                                                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                                            />
+                                                        ) : (
+                                                            <div style={{
+                                                                width: '100%', height: '100%',
+                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                color: 'var(--color-text-muted)',
+                                                            }}>
+                                                                <Package size={18} strokeWidth={1.5} />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    {/* Info */}
+                                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                                        <div style={{
+                                                            fontSize: 12.5, fontWeight: 600,
+                                                            color: isCurrent ? 'var(--color-gold)' : 'var(--color-text-primary)',
+                                                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                        }}>
+                                                            {pickProductName(prod)}
+                                                        </div>
+                                                        <div style={{
+                                                            fontSize: 11, color: 'var(--color-text-muted)',
+                                                            marginTop: 2, fontFamily: 'monospace', letterSpacing: 0.3,
+                                                        }}>
+                                                            {prod.sku}
+                                                        </div>
+                                                    </div>
                                                 </Link>
                                             )
                                         })}
@@ -453,7 +472,8 @@ export default function ProjectsForProduct({ productId, isAr }: Props) {
                             )}
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     )
@@ -463,14 +483,13 @@ function navBtnStyle(side: 'left' | 'right'): React.CSSProperties {
     return {
         position: 'absolute', top: '50%', transform: 'translateY(-50%)',
         [side]: 14,
-        background: 'rgba(0,0,0,0.55)',
+        background: 'rgba(0,0,0,0.5)',
         color: '#fff',
-        border: '1px solid rgba(255,255,255,0.15)',
+        border: '1px solid rgba(255,255,255,0.2)',
         borderRadius: '50%',
         width: 44, height: 44,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         cursor: 'pointer',
-        backdropFilter: 'blur(4px)',
         transition: 'background 0.15s',
     } as React.CSSProperties
 }
