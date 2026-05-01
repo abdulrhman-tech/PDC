@@ -291,3 +291,31 @@ export const translateAPI = {
     translate: (text: string, from: string = 'ar', to: string = 'en') =>
         api.post<{ translated: string }>('/sap/translate/', { text, from, to }),
 }
+
+export const projectsAPI = {
+    list: (params?: { search?: string; is_active?: 'true' | 'false' }) =>
+        api.get('/projects/', { params }),
+    detail: (id: number) => api.get(`/projects/${id}/`),
+    create: (data: object) => api.post('/projects/', data),
+    update: (id: number, data: object) => api.patch(`/projects/${id}/`, data),
+    delete: (id: number) => api.delete(`/projects/${id}/`),
+    toggleActive: (id: number) => api.patch(`/projects/${id}/toggle-active/`),
+
+    uploadImages: (id: number, formData: FormData, onProgress?: (pct: number) => void) =>
+        api.post(`/projects/${id}/images/`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            onUploadProgress: (e) => {
+                if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
+            },
+        }),
+    deleteImage: (id: number, imageId: number) =>
+        api.delete(`/projects/${id}/images/${imageId}/`),
+    reorderImages: (id: number, orderedIds: number[]) =>
+        api.patch(`/projects/${id}/images/reorder/`, { ordered_ids: orderedIds }),
+
+    searchProducts: (q: string) =>
+        api.get('/projects/search-products/', { params: { q } }),
+
+    forProduct: (productId: number) =>
+        api.get(`/products/${productId}/projects/`),
+}

@@ -28,6 +28,8 @@ import ServicesPage from '@/pages/Services/ServicesPage'
 import BranchesPage from '@/pages/Branches/BranchesPage'
 import ContactPage from '@/pages/Contact/ContactPage'
 import SAPIntegrationPage from '@/pages/SAPIntegration/SAPIntegrationPage'
+import ProjectsListPage from '@/pages/Projects/ProjectsListPage'
+import ProjectFormPage from '@/pages/Projects/ProjectFormPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
     const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -250,6 +252,38 @@ export default function App() {
                                 <RequireSuperAdmin>
                                     <SAPIntegrationPage />
                                 </RequireSuperAdmin>
+                            </RequireAuth>
+                        }
+                    />
+
+                    {/* Screen 16: Our Projects — manager + admin (UI gates buttons) */}
+                    <Route
+                        path="projects"
+                        element={
+                            <RequireAuth>
+                                <RequireManagerOrAdmin>
+                                    <ProjectsListPage />
+                                </RequireManagerOrAdmin>
+                            </RequireAuth>
+                        }
+                    />
+                    <Route
+                        path="projects/new"
+                        element={
+                            <RequireAuth>
+                                <RequireManagerOrAdmin>
+                                    <ProjectFormPage />
+                                </RequireManagerOrAdmin>
+                            </RequireAuth>
+                        }
+                    />
+                    <Route
+                        path="projects/:id/edit"
+                        element={
+                            <RequireAuth>
+                                <RequireManagerOrAdmin>
+                                    <ProjectFormPage />
+                                </RequireManagerOrAdmin>
                             </RequireAuth>
                         }
                     />

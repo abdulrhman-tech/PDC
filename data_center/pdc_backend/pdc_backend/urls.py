@@ -11,6 +11,8 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, Sp
 import os
 import requests as http_requests
 
+from apps.projects.views import projects_for_product
+
 
 def serve_react_spa(request, *args, **kwargs):
     """Return the compiled React index.html for any non-API route."""
@@ -78,6 +80,9 @@ urlpatterns = [
         path('settings/', include('apps.settings_app.urls')),
         path('decorative/', include('apps.images.urls')),
         path('sap/', include('apps.integrations.sap_urls')),
+        path('projects/', include('apps.projects.urls')),
+        path('products/<int:product_id>/projects/', projects_for_product,
+             name='projects-for-product'),
     ])),
 
     # API Docs

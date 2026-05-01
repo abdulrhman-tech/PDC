@@ -11,6 +11,7 @@ import { productsAPI } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { toast } from 'react-toastify'
 import LanguageToggle from '@/components/LanguageToggle/LanguageToggle'
+import ProjectsForProduct from '@/pages/ProductDetail/ProjectsForProduct'
 import type { Product } from '@/types'
 
 const STATUS_BADGE: Record<string, string> = {
@@ -453,6 +454,9 @@ export default function ProductDetailPage() {
                             })()}
                         </div>
                     )}
+
+                    {/* Our Projects (مشاريعنا) — only renders if there are any */}
+                    <ProjectsForProduct productId={Number(id)} isAr={isAr} />
 
                     {/* Actions */}
                     <div style={{ display: 'flex', gap: 12 }}>

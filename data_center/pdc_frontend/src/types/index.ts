@@ -275,3 +275,67 @@ export interface DecorativeGeneration {
     created_at: string
     updated_at: string
 }
+
+// ── Projects (مشاريعنا) ──────────────────────────────────────────────
+export interface ProjectImageRecord {
+    id: number
+    image_url: string
+    alt_text: string
+    sort_order: number
+    is_cover: boolean
+    created_at: string
+}
+
+export interface ProjectProductRef {
+    id: number
+    sku: string
+    product_name_ar: string
+    product_name_en: string
+    main_image_url: string | null
+    category_name_ar: string
+    category_name_en: string
+}
+
+export interface ProjectListItem {
+    id: number
+    name_ar: string
+    name_en: string
+    location_ar: string
+    location_en: string
+    is_active: boolean
+    cover_image_url: string | null
+    images_count: number
+    products_count: number
+    created_at: string
+}
+
+export interface Project {
+    id: number
+    name_ar: string
+    name_en: string
+    description_ar: string
+    description_en: string
+    location_ar: string
+    location_en: string
+    project_year: number | null
+    is_active: boolean
+    sort_order: number
+    products: ProjectProductRef[]
+    product_id_list: number[]
+    images: ProjectImageRecord[]
+    created_by_name: string
+    created_at: string
+    updated_at: string
+}
+
+export interface ProjectPublic {
+    id: number
+    name_ar: string
+    name_en: string
+    description_ar: string
+    description_en: string
+    location_ar: string
+    location_en: string
+    project_year: number | null
+    images: Array<{ id: number; image_url: string; alt_text: string; is_cover: boolean }>
+}
