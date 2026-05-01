@@ -35,21 +35,22 @@ _MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB per file
 
 
 def _user_allowed_products_qs(user):
-    """Return the product queryset the user is allowed to attach to projects.
+    """Return the product queryset the user is allowed to see in the project
+    product picker.
 
-    Mirrors ``ProductViewSet.get_queryset``: super_admin sees everything;
-    dept_manager is restricted to their managed categories; everyone else
-    sees nothing (they can't create/edit projects anyway).
+    Read access to the product catalog is broadly available across the system,
+    so any authenticated user gets the full queryset; a dept_manager is
+    intentionally restricted to their managed categories so the picker can't
+    suggest products they couldn't actually attach. Write-time scope is still
+    re-validated by ``ProjectWriteSerializer.validate_product_ids``.
     """
     qs = Product.objects.select_related('category').prefetch_related('images')
     if not (user and user.is_authenticated):
         return qs.none()
-    if user.is_super_admin:
-        return qs
     if user.is_dept_manager:
         managed = user.get_managed_category_ids()
         return qs.filter(category_id__in=managed) if managed else qs.none()
-    # Marketing / sales / public can browse, but cannot author projects.
+    # super_admin and other authenticated roles: full read of the catalog.
     return qs
 
 
@@ -59,7 +60,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
     /api/v1/projects/{id}/                     → detail
     POST /api/v1/projects/                     → create
     PUT/PATCH /api/v1/projects/{id}/           → update
-    DELETE /api/v1/projects/{id}/              → delete (super admin only)
+    DELETE /api/v1/projects/{id}/              → delete (super_admin or
+                                                  in-scope dept_manager)
     PATCH /api/v1/projects/{id}/toggle-active/ → flip is_active
     POST /api/v1/projects/{id}/images/         → upload one or many images
     DELETE /api/v1/projects/{id}/images/{img}/ → delete one image
