@@ -11,9 +11,12 @@ import {
     Pencil, Trash2, Eye, EyeOff, Loader2,
 } from 'lucide-react'
 import { projectsAPI } from '@/api/client'
+import { getApiErrorMessage } from '@/api/errors'
 import { useAuthStore } from '@/store/authStore'
 import { toast } from 'react-toastify'
 import type { ProjectListItem } from '@/types'
+
+type StatusFilter = 'all' | 'active' | 'inactive'
 
 export default function ProjectsListPage() {
     const navigate = useNavigate()
@@ -22,7 +25,7 @@ export default function ProjectsListPage() {
     const canEdit = user?.role === 'super_admin' || user?.role === 'مدير_قسم'
 
     const [search, setSearch] = useState('')
-    const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
     const { data, isLoading } = useQuery({
         queryKey: ['projects-list', search, statusFilter],
@@ -47,7 +50,7 @@ export default function ProjectsListPage() {
             queryClient.invalidateQueries({ queryKey: ['projects-list'] })
             toast.success('تم تحديث الحالة')
         },
-        onError: (e: any) => toast.error(e?.response?.data?.detail || 'فشل التحديث'),
+        onError: (e: unknown) => toast.error(getApiErrorMessage(e, 'فشل التحديث')),
     })
 
     const deleteMut = useMutation({
@@ -56,7 +59,7 @@ export default function ProjectsListPage() {
             queryClient.invalidateQueries({ queryKey: ['projects-list'] })
             toast.success('تم حذف المشروع')
         },
-        onError: (e: any) => toast.error(e?.response?.data?.detail || 'فشل الحذف'),
+        onError: (e: unknown) => toast.error(getApiErrorMessage(e, 'فشل الحذف')),
     })
 
     const handleDelete = (p: ProjectListItem) => {
@@ -118,7 +121,7 @@ export default function ProjectsListPage() {
                 <select
                     className="form-input"
                     value={statusFilter}
-                    onChange={e => setStatusFilter(e.target.value as any)}
+                    onChange={e => setStatusFilter(e.target.value as StatusFilter)}
                     style={{ width: 160 }}
                 >
                     <option value="all">جميع الحالات</option>

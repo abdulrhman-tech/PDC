@@ -10,9 +10,27 @@ import {
     Search, Plus, Trash2, Star, StarOff, Upload, Image as ImageIcon,
 } from 'lucide-react'
 import { projectsAPI, translateAPI } from '@/api/client'
+import { getApiErrorMessage } from '@/api/errors'
 import { toast } from 'react-toastify'
 import { useAuthStore } from '@/store/authStore'
 import type { Project, ProjectProductRef } from '@/types'
+
+type StringKey = {
+    [K in keyof FormState]: FormState[K] extends string ? K : never
+}[keyof FormState]
+
+interface ProjectSavePayload {
+    name_ar: string
+    name_en: string
+    description_ar: string
+    description_en: string
+    location_ar: string
+    location_en: string
+    project_year: number | null
+    is_active: boolean
+    sort_order: number
+    product_ids: number[]
+}
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_BYTES = 10 * 1024 * 1024
@@ -125,7 +143,7 @@ export default function ProjectFormPage() {
     // ── Translate helper ────────────────────────────────────────────
     const translateField = async (
         from: 'ar' | 'en', to: 'ar' | 'en',
-        sourceKey: keyof FormState, targetKey: keyof FormState,
+        sourceKey: StringKey, targetKey: StringKey,
         setBusy: (b: boolean) => void,
     ) => {
         const src = String(form[sourceKey] || '').trim()
@@ -138,10 +156,10 @@ export default function ProjectFormPage() {
             const { data } = await translateAPI.translate(src, from, to)
             const out = (data?.translated || '').trim()
             if (!out) { toast.error('فشلت الترجمة'); return }
-            set(targetKey, out as any)
+            set(targetKey, out)
             toast.success('تمت الترجمة')
-        } catch (e: any) {
-            toast.error(e?.response?.data?.error || 'فشلت الترجمة')
+        } catch (e: unknown) {
+            toast.error(getApiErrorMessage(e, 'فشلت الترجمة'))
         } finally {
             setBusy(false)
         }
@@ -149,7 +167,7 @@ export default function ProjectFormPage() {
 
     // ── Save ────────────────────────────────────────────────────────
     const saveMut = useMutation({
-        mutationFn: (payload: any) =>
+        mutationFn: (payload: ProjectSavePayload) =>
             isEdit
                 ? projectsAPI.update(projectId!, payload)
                 : projectsAPI.create(payload),
@@ -157,17 +175,13 @@ export default function ProjectFormPage() {
             queryClient.invalidateQueries({ queryKey: ['projects-list'] })
             queryClient.invalidateQueries({ queryKey: ['project-detail', projectId] })
             toast.success('تم الحفظ')
-            if (!isEdit && resp.data?.id) {
-                navigate(`/projects/${resp.data.id}/edit`, { replace: true })
+            const created = resp.data as Project | undefined
+            if (!isEdit && created?.id) {
+                navigate(`/projects/${created.id}/edit`, { replace: true })
             }
         },
-        onError: (e: any) => {
-            const msg = e?.response?.data?.detail
-                || (typeof e?.response?.data === 'object'
-                    ? Object.entries(e.response.data).map(([k, v]) => `${k}: ${v}`).join(' | ')
-                    : null)
-                || 'فشل الحفظ'
-            toast.error(msg)
+        onError: (e: unknown) => {
+            toast.error(getApiErrorMessage(e, 'فشل الحفظ'))
         },
     })
 
@@ -246,9 +260,9 @@ export default function ProjectFormPage() {
                             ? { ...p, status: 'error' as const, error: errs[0]?.error || 'فشل' }
                             : p))
                 }
-            } catch (e: any) {
+            } catch (e: unknown) {
                 failCount++
-                const msg = e?.response?.data?.detail || 'فشل الرفع'
+                const msg = getApiErrorMessage(e, 'فشل الرفع')
                 setUploadItems(prev => prev.map(p =>
                     p.id === item.id ? { ...p, status: 'error' as const, error: msg } : p))
             }
