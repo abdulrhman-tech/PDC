@@ -394,12 +394,9 @@ export default function ProductDetailPage() {
                                             const schemaItem = (product.attribute_schema || []).find(
                                                 s => s.key === key
                                             )
-                                            const label = isAr
-                                                ? (schemaItem?.label_ar || key)
-                                                : (schemaItem?.label_en || schemaItem?.label_ar || key)
-                                            const unit = isAr
-                                                ? (schemaItem?.unit || '')
-                                                : (schemaItem?.unit_en || schemaItem?.unit || '')
+                                            const labelAr = schemaItem?.label_ar || key
+                                            const labelEn = schemaItem?.label_en || ''
+                                            const unit = schemaItem?.unit || ''
                                             let displayValue = String(value)
                                             if (!isAr && schemaItem?.options && schemaItem.options_en) {
                                                 const idx = schemaItem.options.indexOf(String(value))
@@ -413,7 +410,15 @@ export default function ProductDetailPage() {
                                                     padding: '10px 16px', borderBottom: '1px solid var(--color-border)',
                                                 }}>
                                                     <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
-                                                        {label}
+                                                        {labelAr}
+                                                        {labelEn && labelEn !== labelAr && (
+                                                            <span style={{
+                                                                fontSize: 10, opacity: 0.6, marginRight: 5,
+                                                                direction: 'ltr', display: 'inline-block',
+                                                            }}>
+                                                                / {labelEn}
+                                                            </span>
+                                                        )}
                                                         {unit && <span style={{ fontSize: 11, marginRight: 4, opacity: 0.6 }}>({unit})</span>}
                                                     </span>
                                                     <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{displayValue}</span>

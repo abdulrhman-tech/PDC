@@ -617,8 +617,16 @@ export default function ProductFormPage() {
                         const renderRow = (schema: AttributeSchemaItem, dim = false) => (
                             <div key={schema.field_key} className="form-group" style={{ opacity: dim ? 0.78 : 1 }}>
                                 <label className="form-label" htmlFor={`attr-${schema.field_key}`}
-                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                     <span>{schema.field_label_ar}</span>
+                                    {schema.field_label_en && schema.field_label_en !== schema.field_label_ar && (
+                                        <span style={{
+                                            color: 'var(--color-warm-gray)', fontWeight: 400,
+                                            fontSize: 10, direction: 'ltr', opacity: 0.75,
+                                        }}>
+                                            {schema.field_label_en}
+                                        </span>
+                                    )}
                                     {schema.is_required && (
                                         <span style={{ color: '#e07070', fontSize: 13, lineHeight: 1 }}>*</span>
                                     )}
