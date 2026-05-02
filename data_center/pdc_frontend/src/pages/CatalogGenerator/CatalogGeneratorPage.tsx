@@ -423,6 +423,38 @@ export default function CatalogGeneratorPage() {
                 fetchAsBase64(BukraBoldUrl),
             ])
 
+            /* ③.5 توليد نسخة بيضاء من اللوجو — html2canvas لا يدعم CSS filter */
+            const whiteLogoB64 = await (async (): Promise<string> => {
+                try {
+                    const res = await fetch('/logo.png')
+                    if (!res.ok) return ''
+                    const blob = await res.blob()
+                    const blobUrl = URL.createObjectURL(blob)
+                    return await new Promise<string>(resolve => {
+                        const img = new Image()
+                        img.onload = () => {
+                            const c = document.createElement('canvas')
+                            c.width = img.naturalWidth
+                            c.height = img.naturalHeight
+                            const ctx = c.getContext('2d')!
+                            ctx.drawImage(img, 0, 0)
+                            const imageData = ctx.getImageData(0, 0, c.width, c.height)
+                            const d = imageData.data
+                            for (let i = 0; i < d.length; i += 4) {
+                                if (d[i + 3] > 10) {
+                                    d[i] = 255; d[i + 1] = 255; d[i + 2] = 255
+                                }
+                            }
+                            ctx.putImageData(imageData, 0, 0)
+                            resolve(c.toDataURL('image/png'))
+                            URL.revokeObjectURL(blobUrl)
+                        }
+                        img.onerror = () => { resolve(''); URL.revokeObjectURL(blobUrl) }
+                        img.src = blobUrl
+                    })
+                } catch { return '' }
+            })()
+
             /* ④ جلب الصور مسبقاً كـ data URL عبر بروكسي الـ backend (لحل CORS مع R2) */
             const imgDataMap = new Map<string, string>()
             const toProxyUrl = (src: string) =>
@@ -459,8 +491,8 @@ export default function CatalogGeneratorPage() {
                 backgroundColor: '#ffffff',
                 logging: false,
                 imageTimeout: 20000,
-                onclone: (doc) => {
-                    /* حقن خط 29LT Bukra داخل المستند المستنسَخ — كل وزن بشرطه الخاص */
+                onclone: async (doc) => {
+                    /* ① حقن خط 29LT Bukra داخل المستند المستنسَخ — كل وزن بشرطه الخاص */
                     if (fontRegularB64 || fontBoldB64) {
                         const faces: string[] = []
                         if (fontRegularB64) faces.push(`
@@ -483,10 +515,25 @@ export default function CatalogGeneratorPage() {
                                 font-family: '29LT Bukra', 'Segoe UI', Tahoma, Arial, sans-serif !important;
                             }`
                         doc.head.appendChild(fontStyle)
+                        /* انتظر حتى يُحمّل الخط المحقون فعلياً قبل بدء الرسم */
+                        await doc.fonts.ready
                     }
+                    /* ② استبدال اللوجو بنسخة بيضاء — html2canvas لا يدعم CSS filter */
+                    if (whiteLogoB64) {
+                        doc.querySelectorAll('img').forEach((img) => {
+                            const imgEl = img as HTMLImageElement
+                            const isBrightnessFilter = imgEl.style.filter?.includes('invert')
+                            if (isBrightnessFilter && imgEl.src.includes('logo.png')) {
+                                imgEl.src = whiteLogoB64
+                                imgEl.style.filter = 'none'
+                            }
+                        })
+                    }
+                    /* ③ إخفاء عناصر no-print */
                     doc.querySelectorAll('.no-print').forEach(n => {
                         (n as HTMLElement).style.display = 'none'
                     })
+                    /* ④ استبدال صور المنتجات بـ data URLs */
                     doc.querySelectorAll('img').forEach((img) => {
                         const dataUrl = imgDataMap.get((img as HTMLImageElement).src)
                         if (dataUrl) (img as HTMLImageElement).src = dataUrl
