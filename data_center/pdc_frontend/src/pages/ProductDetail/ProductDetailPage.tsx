@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, Edit3, Package, ExternalLink, CheckCircle, LogIn, LayoutGrid, ChevronRight, ChevronLeft, ChevronDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { productsAPI } from '@/api/client'
+import { pickBilingual } from '@/i18n/bilingual'
 import { useAuthStore } from '@/store/authStore'
 import { toast } from 'react-toastify'
 import LanguageToggle from '@/components/LanguageToggle/LanguageToggle'
@@ -149,7 +150,7 @@ export default function ProductDetailPage() {
                     {t('product.back')}
                 </button>
                 <span>/</span>
-                <span>{isAr ? product.category_name : (product.category_name_en || product.category_name)}</span>
+                <span>{pickBilingual(product.category_name, product.category_name_en, isAr)}</span>
                 <span>/</span>
                 <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{product.sku}</span>
             </div>
@@ -300,10 +301,10 @@ export default function ProductDetailPage() {
                         </p>
                     <div style={{ background: 'var(--color-surface)', borderRadius: 10, padding: 16, border: '1px solid var(--color-border)' }}>
                         {[
-                            { label: t('product.category'), value: isAr ? product.category_name : (product.category_name_en || product.category_name) },
-                            { label: t('product.brand'), value: isAr ? product.brand_name : (product.brand_name_en || product.brand_name) },
-                            { label: t('product.country'), value: isAr ? product.origin_country : (product.origin_country_en || product.origin_country) },
-                            { label: t('product.color'), value: isAr ? product.color : (product.color_en || product.color) },
+                            { label: t('product.category'), value: pickBilingual(product.category_name, product.category_name_en, isAr) },
+                            { label: t('product.brand'), value: pickBilingual(product.brand_name, product.brand_name_en, isAr) },
+                            { label: t('product.country'), value: pickBilingual(product.origin_country, product.origin_country_en, isAr) },
+                            { label: t('product.color'), value: pickBilingual(product.color, product.color_en, isAr) },
                             { label: t('product.stock_status'), value: isAr ? product.stock_status : (
                                 product.stock_status === 'متوفر' ? 'Available' :
                                 product.stock_status === 'غير متوفر' ? 'Unavailable' :
@@ -372,7 +373,7 @@ export default function ProductDetailPage() {
                                 const allEntries: [string, string][] = baseKeys.map(baseKey => {
                                     const ar = product.attributes[baseKey] ? String(product.attributes[baseKey]) : ''
                                     const en = product.attributes[baseKey + '_en'] ? String(product.attributes[baseKey + '_en']) : ''
-                                    const primary = isAr ? (ar || en) : (en || ar)
+                                    const primary = pickBilingual(ar, en, isAr)
                                     return [baseKey, primary] as [string, string]
                                 }).filter(([, v]) => v !== '')
                                 const priorityIdx = (k: string) => {
