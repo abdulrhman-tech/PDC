@@ -635,6 +635,46 @@ function ProjectsPage({
                                     </p>
                                 )}
 
+                                {/* شريط الصور الإضافية */}
+                                {(() => {
+                                    const galleryImgs = (project.images ?? [])
+                                        .filter(i => !i.is_cover && i.image_url)
+                                        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+                                        .slice(0, 4)
+                                    if (!galleryImgs.length) return null
+                                    return (
+                                        <div style={{ marginTop: 2 }}>
+                                            <div style={{
+                                                fontSize: 9, fontWeight: 700, color: '#9ca3af',
+                                                textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 5,
+                                            }}>
+                                                {lang === 'en' ? 'Project Gallery' : 'معرض الصور'}
+                                            </div>
+                                            <div style={{ display: 'flex', gap: 5 }}>
+                                                {galleryImgs.map(img => (
+                                                    <div
+                                                        key={img.id}
+                                                        style={{
+                                                            width: 72, height: 52,
+                                                            borderRadius: 6, overflow: 'hidden',
+                                                            border: `1px solid ${theme.primary}30`,
+                                                            flexShrink: 0,
+                                                            background: '#f3f4f6',
+                                                        }}
+                                                    >
+                                                        <img
+                                                            src={img.image_url}
+                                                            alt={img.alt_text || ''}
+                                                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                                            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )
+                                })()}
+
                                 {/* المنتجات المرتبطة */}
                                 {project.products && project.products.length > 0 && (
                                     <div style={{ marginTop: 'auto' }}>
