@@ -112,9 +112,18 @@ const ATTR_LABELS_AR: Record<string, string> = {
 
 function translateAttrKey(key: string, language: 'ar' | 'en'): string {
     if (language === 'en') return key
-    /* إذا كان المفتاح عربياً أصلاً، اعد إرجاعه كما هو */
     if (/[\u0600-\u06FF]/.test(key)) return key
     return ATTR_LABELS_AR[key] ?? ATTR_LABELS_AR[key.toLowerCase()] ?? key
+}
+
+/**
+ * تحديد إذا كانت الخاصية قابلة للعرض للمستخدم.
+ * تُخفى الأكواد الداخلية (مثل dbg, factoyno, decortakm1) التي لا ترجمة لها.
+ */
+function isDisplayableAttr(key: string): boolean {
+    if (ATTR_LABELS_AR[key] || ATTR_LABELS_AR[key.toLowerCase()]) return true
+    if (/[\u0600-\u06FF]/.test(key)) return true
+    return false
 }
 
 /* ── QR Image ── */
@@ -167,7 +176,8 @@ function GridCard({
 }) {
     const lang = settings.language ?? 'ar'
     const attrs = product.attributes
-        ? Object.entries(product.attributes as Record<string, unknown>).filter(([, v]) => v !== null && v !== '')
+        ? Object.entries(product.attributes as Record<string, unknown>)
+            .filter(([k, v]) => v !== null && v !== '' && isDisplayableAttr(k))
         : []
     const maxAttrs = settings.columns <= 2 ? 6 : settings.columns === 3 ? 4 : 3
     const qrUrl = settings.qrBaseUrl + product.id
@@ -181,29 +191,46 @@ function GridCard({
     return (
         <div className="catalog-card" style={{
             background: '#ffffff',
-            border: '1px solid #e5e7eb',
-            borderRadius: 10,
+            border: '1px solid #e8eaf0',
+            borderRadius: 12,
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
             breakInside: 'avoid',
             pageBreakInside: 'avoid',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.04)',
         }}>
+            {/* شريط لوني علوي */}
+            <div style={{ height: 3, background: `linear-gradient(90deg, ${theme.primary}, ${theme.accent})`, flexShrink: 0 }} />
+
             {/* صورة */}
             {settings.showImages && (
                 <div style={{
-                    background: '#f3f4f6',
+                    background: `linear-gradient(135deg, #f8f9fb 0%, #f1f3f7 100%)`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     height: imgHeight(settings.columns),
                     overflow: 'hidden',
-                    borderBottom: `2px solid ${theme.primary}20`,
+                    borderBottom: `1px solid #eef0f4`,
                     flexShrink: 0,
+                    position: 'relative',
                 }}>
+                    {/* شارة الرقم */}
+                    <div style={{
+                        position: 'absolute', top: 7, right: 7, zIndex: 2,
+                        minWidth: 22, height: 22, borderRadius: 11,
+                        background: theme.primary,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 9, fontWeight: 800, color: theme.dark,
+                        padding: '0 5px',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+                    }}>
+                        {String(idx + 1).padStart(2, '0')}
+                    </div>
                     {product.main_image_url ? (
                         <img
                             src={product.main_image_url}
                             alt={product.product_name_ar}
-                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                            style={{ width: '92%', height: '92%', objectFit: 'contain' }}
                             onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
                         />
                     ) : (
@@ -217,27 +244,37 @@ function GridCard({
 
             {/* محتوى */}
             <div style={{ padding: '10px 12px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                <div style={{ fontSize: 9, color: theme.primary, fontWeight: 700, marginBottom: 3, letterSpacing: 0.5 }}>
-                    {String(idx + 1).padStart(2, '0')}
-                </div>
+                {!settings.showImages && (
+                    <div style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        minWidth: 22, height: 22, borderRadius: 11,
+                        background: theme.primary, marginBottom: 5,
+                        fontSize: 9, fontWeight: 800, color: theme.dark,
+                        padding: '0 5px', alignSelf: 'flex-end',
+                    }}>
+                        {String(idx + 1).padStart(2, '0')}
+                    </div>
+                )}
                 <div style={{
-                    fontSize: settings.columns <= 2 ? 14 : 12,
+                    fontSize: settings.columns <= 2 ? 13 : 11,
                     fontWeight: 700, color: '#111827',
-                    marginBottom: 2, lineHeight: 1.4,
+                    marginBottom: 2, lineHeight: 1.45,
                     direction: lang === 'en' ? 'ltr' : 'rtl',
                 }}>
                     {mainName}
                 </div>
                 {subName && (
-                    <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 6, fontStyle: 'italic', direction: lang === 'en' ? 'rtl' : 'ltr', textAlign: lang === 'en' ? 'right' : 'left' }}>
+                    <div style={{ fontSize: 9, color: '#6b7280', marginBottom: 5, fontStyle: 'italic', direction: lang === 'en' ? 'rtl' : 'ltr', textAlign: lang === 'en' ? 'right' : 'left' }}>
                         {subName}
                     </div>
                 )}
                 {settings.showSku && (
                     <div style={{
-                        display: 'inline-block', fontSize: 9, fontFamily: 'monospace',
-                        background: `${theme.primary}18`, color: theme.accent,
-                        padding: '2px 6px', borderRadius: 4, marginBottom: 6, fontWeight: 600,
+                        display: 'inline-block', fontSize: 8, fontFamily: 'monospace',
+                        background: `${theme.primary}15`, color: theme.accent,
+                        padding: '2px 7px', borderRadius: 5, marginBottom: 6, fontWeight: 700,
+                        border: `1px solid ${theme.primary}25`,
+                        letterSpacing: 0.3,
                     }}>
                         {product.sku}
                     </div>
@@ -245,7 +282,7 @@ function GridCard({
                 {settings.showDescription && product.description_ar && (
                     <p style={{
                         fontSize: 10, color: '#4b5563', margin: '0 0 6px',
-                        lineHeight: 1.6,
+                        lineHeight: 1.65,
                         display: '-webkit-box', WebkitLineClamp: 2,
                         WebkitBoxOrient: 'vertical', overflow: 'hidden',
                     }}>
@@ -254,14 +291,20 @@ function GridCard({
                 )}
                 {settings.showSpecs && attrs.length > 0 && (
                     <div style={{
-                        background: '#f9fafb', borderRadius: 6,
-                        padding: '6px 8px', marginBottom: 6,
-                        border: '1px solid #e5e7eb', flex: 1,
+                        background: `linear-gradient(135deg, #f8f9fb, #f3f4f8)`,
+                        borderRadius: 7,
+                        padding: '6px 9px', marginBottom: 6,
+                        border: '1px solid #eaecf2',
+                        flex: 1,
                     }}>
                         {attrs.slice(0, maxAttrs).map(([k, v]) => (
-                            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, marginBottom: 2, gap: 4 }}>
-                                <span style={{ color: '#6b7280', flexShrink: 0 }}>{translateAttrKey(k, lang)}:</span>
-                                <span style={{ color: '#111827', fontWeight: 600, textAlign: 'left' }}>{String(v)}</span>
+                            <div key={k} style={{
+                                display: 'flex', justifyContent: 'space-between',
+                                fontSize: 9, marginBottom: 3, gap: 4,
+                                borderBottom: '1px solid #edf0f5', paddingBottom: 2,
+                            }}>
+                                <span style={{ color: '#7c8499', flexShrink: 0 }}>{translateAttrKey(k, lang)}</span>
+                                <span style={{ color: '#1a202c', fontWeight: 700, textAlign: 'left' }}>{String(v)}</span>
                             </div>
                         ))}
                         {attrs.length > maxAttrs && !settings.showStoreButton && (
@@ -270,12 +313,12 @@ function GridCard({
                                     href={product.ecommerce_url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    style={{ fontSize: 9, color: theme.primary, marginTop: 2, display: 'block', textDecoration: 'none', fontWeight: 600 }}
+                                    style={{ fontSize: 9, color: theme.primary, marginTop: 3, display: 'block', textDecoration: 'none', fontWeight: 700 }}
                                 >
                                     +{attrs.length - maxAttrs} {lang === 'en' ? 'more specs ←' : 'مواصفة أخرى ←'}
                                 </a>
                             ) : (
-                                <div style={{ fontSize: 9, color: theme.primary, marginTop: 2 }}>
+                                <div style={{ fontSize: 9, color: theme.primary, marginTop: 3, fontWeight: 600 }}>
                                     +{attrs.length - maxAttrs} {lang === 'en' ? 'more specs' : 'مواصفة أخرى'}
                                 </div>
                             )
@@ -294,16 +337,16 @@ function GridCard({
             {/* السعر */}
             {settings.showPrice && product.price_sar && (
                 <div style={{
-                    padding: '7px 12px',
-                    background: `linear-gradient(135deg, ${theme.dark}, ${theme.accent}20)`,
-                    borderTop: `1px solid ${theme.primary}30`,
+                    padding: '8px 12px',
+                    background: `linear-gradient(135deg, ${theme.dark} 0%, ${theme.accent}35 100%)`,
+                    borderTop: `2px solid ${theme.primary}40`,
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     flexShrink: 0,
                 }}>
-                    <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.6)' }}>{lang === 'en' ? 'Price' : 'السعر'}</span>
+                    <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.55)', letterSpacing: 0.5 }}>{lang === 'en' ? 'PRICE' : 'السعر'}</span>
                     <span style={{ fontSize: settings.columns <= 2 ? 15 : 13, fontWeight: 800, color: theme.primary }}>
                         {parseFloat(product.price_sar).toLocaleString('ar-SA')}
-                        <span style={{ fontSize: 9, fontWeight: 400, marginRight: 2 }}>{lang === 'en' ? 'SAR' : 'ر.س'}</span>
+                        <span style={{ fontSize: 9, fontWeight: 400, marginRight: 3, color: 'rgba(255,255,255,0.5)' }}>{lang === 'en' ? 'SAR' : 'ر.س'}</span>
                     </span>
                 </div>
             )}
@@ -316,13 +359,14 @@ function GridCard({
                     rel="noopener noreferrer"
                     style={{
                         display: 'block', textAlign: 'center',
-                        padding: '7px 10px',
-                        background: theme.primary,
-                        color: '#fff',
-                        fontSize: 10, fontWeight: 700,
+                        padding: '8px 10px',
+                        background: `linear-gradient(135deg, ${theme.primary}, ${theme.accent})`,
+                        color: theme.dark,
+                        fontSize: 10, fontWeight: 800,
                         textDecoration: 'none',
                         flexShrink: 0,
                         direction: 'rtl',
+                        letterSpacing: 0.3,
                     }}
                 >
                     عرض في المتجر الإلكتروني ←
@@ -343,7 +387,8 @@ function ListCard({
 }) {
     const lang = settings.language ?? 'ar'
     const attrs = product.attributes
-        ? Object.entries(product.attributes as Record<string, unknown>).filter(([, v]) => v !== null && v !== '')
+        ? Object.entries(product.attributes as Record<string, unknown>)
+            .filter(([k, v]) => v !== null && v !== '' && isDisplayableAttr(k))
         : []
     const qrUrl = settings.qrBaseUrl + product.id
     const mainName = lang === 'en'
@@ -356,27 +401,44 @@ function ListCard({
     return (
         <div className="catalog-card" style={{
             background: '#ffffff',
-            border: '1px solid #e5e7eb',
-            borderRadius: 10,
+            border: '1px solid #e8eaf0',
+            borderRadius: 12,
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'row',
             breakInside: 'avoid',
             pageBreakInside: 'avoid',
             minHeight: 130,
+            boxShadow: '0 2px 12px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.04)',
         }}>
+            {/* شريط لوني جانبي */}
+            <div style={{ width: 4, flexShrink: 0, background: `linear-gradient(180deg, ${theme.primary}, ${theme.accent})` }} />
+
             {/* صورة */}
             {settings.showImages && (
                 <div style={{
-                    width: 160, flexShrink: 0,
-                    background: '#f3f4f6',
+                    width: 155, flexShrink: 0,
+                    background: `linear-gradient(135deg, #f8f9fb 0%, #f1f3f7 100%)`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    borderLeft: `3px solid ${theme.primary}`,
+                    borderLeft: `1px solid #eef0f4`,
                     overflow: 'hidden',
+                    position: 'relative',
                 }}>
+                    {/* شارة الرقم */}
+                    <div style={{
+                        position: 'absolute', top: 7, right: 7, zIndex: 2,
+                        minWidth: 24, height: 24, borderRadius: 12,
+                        background: theme.primary,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 10, fontWeight: 800, color: theme.dark,
+                        padding: '0 5px',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                    }}>
+                        {String(idx + 1).padStart(2, '0')}
+                    </div>
                     {product.main_image_url ? (
                         <img src={product.main_image_url} alt={product.product_name_ar}
-                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                            style={{ width: '88%', height: '88%', objectFit: 'contain' }}
                             onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
                         />
                     ) : (
@@ -388,24 +450,30 @@ function ListCard({
             )}
 
             {/* محتوى */}
-            <div style={{ flex: 1, padding: '14px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div style={{ flex: 1, padding: '13px 15px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, color: theme.primary, fontWeight: 700 }}>
+                    {!settings.showImages && (
+                        <div style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            minWidth: 24, height: 24, borderRadius: 12,
+                            background: theme.primary, marginBottom: 6,
+                            fontSize: 10, fontWeight: 800, color: theme.dark,
+                            padding: '0 5px',
+                        }}>
                             {String(idx + 1).padStart(2, '0')}
-                        </span>
-                        <span style={{ fontSize: 16, fontWeight: 700, color: '#111827', lineHeight: 1.3, direction: lang === 'en' ? 'ltr' : 'rtl' }}>
-                            {mainName}
-                        </span>
+                        </div>
+                    )}
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#111827', lineHeight: 1.35, direction: lang === 'en' ? 'ltr' : 'rtl', marginBottom: 3 }}>
+                        {mainName}
                     </div>
                     {subName && (
-                        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6, direction: lang === 'en' ? 'rtl' : 'ltr', textAlign: lang === 'en' ? 'right' : 'left', fontStyle: 'italic' }}>
+                        <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 6, direction: lang === 'en' ? 'rtl' : 'ltr', textAlign: lang === 'en' ? 'right' : 'left', fontStyle: 'italic' }}>
                             {subName}
                         </div>
                     )}
                     {settings.showDescription && product.description_ar && (
                         <p style={{
-                            fontSize: 11, color: '#4b5563', margin: '0 0 8px', lineHeight: 1.6,
+                            fontSize: 11, color: '#4b5563', margin: '0 0 7px', lineHeight: 1.65,
                             display: '-webkit-box', WebkitLineClamp: 2,
                             WebkitBoxOrient: 'vertical', overflow: 'hidden',
                         }}>
@@ -413,11 +481,11 @@ function ListCard({
                         </p>
                     )}
                     {settings.showSpecs && attrs.length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', marginBottom: 4 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 14px', marginBottom: 4 }}>
                             {attrs.slice(0, 8).map(([k, v]) => (
                                 <div key={k} style={{ fontSize: 10, color: '#374151' }}>
                                     <span style={{ color: '#9ca3af' }}>{translateAttrKey(k, lang)}: </span>
-                                    <span style={{ fontWeight: 600 }}>{String(v)}</span>
+                                    <span style={{ fontWeight: 700, color: '#1a202c' }}>{String(v)}</span>
                                 </div>
                             ))}
                         </div>
@@ -425,12 +493,13 @@ function ListCard({
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, flexWrap: 'wrap', gap: 6 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {settings.showSku && (
                             <span style={{
-                                fontSize: 10, fontFamily: 'monospace',
-                                background: `${theme.primary}18`, color: theme.accent,
-                                padding: '2px 8px', borderRadius: 4, fontWeight: 600,
+                                fontSize: 9, fontFamily: 'monospace',
+                                background: `${theme.primary}15`, color: theme.accent,
+                                padding: '2px 8px', borderRadius: 5, fontWeight: 700,
+                                border: `1px solid ${theme.primary}25`, letterSpacing: 0.3,
                             }}>
                                 {product.sku}
                             </span>
@@ -445,10 +514,10 @@ function ListCard({
                                 rel="noopener noreferrer"
                                 style={{
                                     display: 'inline-flex', alignItems: 'center', gap: 4,
-                                    padding: '5px 12px', borderRadius: 6,
-                                    background: theme.primary,
-                                    color: '#fff',
-                                    fontSize: 10, fontWeight: 700,
+                                    padding: '5px 13px', borderRadius: 7,
+                                    background: `linear-gradient(135deg, ${theme.primary}, ${theme.accent})`,
+                                    color: theme.dark,
+                                    fontSize: 10, fontWeight: 800,
                                     textDecoration: 'none',
                                     direction: 'rtl',
                                 }}
@@ -459,15 +528,15 @@ function ListCard({
                     </div>
                     {settings.showPrice && product.price_sar && (
                         <div style={{
-                            background: `linear-gradient(135deg, ${theme.dark}, ${theme.accent}30)`,
-                            padding: '4px 14px', borderRadius: 8,
-                            display: 'flex', alignItems: 'center', gap: 4,
+                            background: `linear-gradient(135deg, ${theme.dark}, ${theme.accent}35)`,
+                            padding: '5px 14px', borderRadius: 8,
+                            display: 'flex', alignItems: 'center', gap: 5,
                         }}>
-                            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>{lang === 'en' ? 'Price:' : 'السعر:'}</span>
+                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)' }}>{lang === 'en' ? 'Price:' : 'السعر:'}</span>
                             <span style={{ fontSize: 18, fontWeight: 800, color: theme.primary }}>
                                 {parseFloat(product.price_sar).toLocaleString('ar-SA')}
                             </span>
-                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>{lang === 'en' ? 'SAR' : 'ر.س'}</span>
+                            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)' }}>{lang === 'en' ? 'SAR' : 'ر.س'}</span>
                         </div>
                     )}
                 </div>
@@ -496,39 +565,45 @@ function ProjectsPage({
         }}>
             {/* رأس صفحة المشاريع */}
             <div style={{
-                background: theme.dark,
-                padding: '22px 32px',
-                borderBottom: `4px solid ${theme.primary}`,
-                display: 'flex', alignItems: 'center', gap: 16,
+                background: `linear-gradient(135deg, ${theme.dark} 0%, ${theme.accent}55 100%)`,
+                padding: '26px 36px',
+                display: 'flex', alignItems: 'center', gap: 18,
             }}>
                 <div style={{
-                    width: 44, height: 44, borderRadius: 10,
-                    background: `${theme.primary}25`,
+                    width: 50, height: 50, borderRadius: 12,
+                    background: `${theme.primary}22`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    border: `1px solid ${theme.primary}40`,
+                    border: `2px solid ${theme.primary}50`,
+                    flexShrink: 0,
                 }}>
-                    <Building2 size={22} color={theme.primary} />
+                    <Building2 size={24} color={theme.primary} strokeWidth={1.8} />
                 </div>
-                <div>
-                    <div style={{ fontSize: 26, fontWeight: 900, color: theme.primary, letterSpacing: 0.5 }}>
+                <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 28, fontWeight: 900, color: theme.primary, letterSpacing: 0.3, lineHeight: 1.2 }}>
                         مشاريعنا
                     </div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
-                        Our Projects
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 3, letterSpacing: 1 }}>
+                        OUR PROJECTS
                     </div>
                 </div>
-                <div style={{ marginRight: 'auto', textAlign: 'left' }}>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-                        {projects.length} {projects.length === 1 ? 'مشروع' : 'مشاريع'}
+                <div style={{
+                    background: `${theme.primary}18`, border: `1px solid ${theme.primary}35`,
+                    borderRadius: 8, padding: '6px 14px', textAlign: 'center',
+                }}>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: theme.primary, lineHeight: 1 }}>
+                        {projects.length}
+                    </div>
+                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
+                        {projects.length === 1 ? 'مشروع' : 'مشاريع'}
                     </div>
                 </div>
             </div>
 
-            {/* شريط لوني رفيع */}
-            <div style={{ height: 3, background: `linear-gradient(90deg, ${theme.primary}, ${theme.accent})` }} />
+            {/* شريط لوني */}
+            <div style={{ height: 4, background: `linear-gradient(90deg, ${theme.primary}, ${theme.accent}, ${theme.primary})` }} />
 
             {/* قائمة المشاريع */}
-            <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 22 }}>
                 {projects.map((project, idx) => {
                     const coverImg =
                         project.images?.find(i => i.is_cover)?.image_url
@@ -907,7 +982,7 @@ export default function CatalogPreview({ products, settings, categories, project
                 style={{
                     background: '#ffffff', borderRadius: 14, overflow: 'hidden',
                     border: '1px solid rgba(255,255,255,0.1)',
-                    fontFamily: "'Segoe UI', Tahoma, Arial, sans-serif",
+                    fontFamily: "'29LT Bukra', 'Segoe UI', Tahoma, Arial, sans-serif",
                     direction: 'rtl', color: '#000000',
                 }}
             >

@@ -5,6 +5,8 @@
 import { useState, useMemo, useRef, useCallback } from 'react'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
+import BukraRegularUrl from '@/fonts/29LTBukra-Regular.ttf?url'
+import BukraBoldUrl from '@/fonts/29LTBukra-Bold.ttf?url'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import {
     BookOpen, Search, CheckSquare, Square, Settings2,
@@ -403,7 +405,25 @@ export default function CatalogGeneratorPage() {
             // أعد عناصر no-print كما كانت
             noPrintEls.forEach((n, i) => { n.style.display = savedDisplays[i] })
 
-            /* ③ جلب الصور مسبقاً كـ data URL عبر بروكسي الـ backend (لحل CORS مع R2) */
+            /* ③ تحميل خط 29LT Bukra كـ base64 لضمان ظهوره داخل html2canvas */
+            const fetchAsBase64 = async (url: string): Promise<string> => {
+                try {
+                    const res = await fetch(url)
+                    const blob = await res.blob()
+                    return new Promise(resolve => {
+                        const reader = new FileReader()
+                        reader.onload = () => resolve(reader.result as string)
+                        reader.onerror = () => resolve('')
+                        reader.readAsDataURL(blob)
+                    })
+                } catch { return '' }
+            }
+            const [fontRegularB64, fontBoldB64] = await Promise.all([
+                fetchAsBase64(BukraRegularUrl),
+                fetchAsBase64(BukraBoldUrl),
+            ])
+
+            /* ④ جلب الصور مسبقاً كـ data URL عبر بروكسي الـ backend (لحل CORS مع R2) */
             const imgDataMap = new Map<string, string>()
             const toProxyUrl = (src: string) =>
                 src.includes('r2.dev')
@@ -430,8 +450,8 @@ export default function CatalogGeneratorPage() {
                 })
             )
 
-            /* ④ رسم الكتالوج كاملاً على كانفاس بدقة عالية */
-            const SCALE = 2
+            /* ⑤ رسم الكتالوج كاملاً على كانفاس بدقة عالية */
+            const SCALE = 3
             const canvas = await html2canvas(el, {
                 scale: SCALE,
                 useCORS: true,
@@ -440,6 +460,28 @@ export default function CatalogGeneratorPage() {
                 logging: false,
                 imageTimeout: 20000,
                 onclone: (doc) => {
+                    /* حقن خط 29LT Bukra داخل المستند المستنسَخ */
+                    if (fontRegularB64 || fontBoldB64) {
+                        const fontStyle = doc.createElement('style')
+                        fontStyle.textContent = `
+                            @font-face {
+                                font-family: '29LT Bukra';
+                                src: url('${fontRegularB64}') format('truetype');
+                                font-weight: 400;
+                                font-style: normal;
+                            }
+                            @font-face {
+                                font-family: '29LT Bukra';
+                                src: url('${fontBoldB64}') format('truetype');
+                                font-weight: 700;
+                                font-style: normal;
+                            }
+                            #catalog-print-root, #catalog-print-root * {
+                                font-family: '29LT Bukra', 'Segoe UI', Tahoma, Arial, sans-serif !important;
+                            }
+                        `
+                        doc.head.appendChild(fontStyle)
+                    }
                     doc.querySelectorAll('.no-print').forEach(n => {
                         (n as HTMLElement).style.display = 'none'
                     })
@@ -450,7 +492,7 @@ export default function CatalogGeneratorPage() {
                 },
             })
 
-            /* ⑤ حساب أبعاد الصفحات — كل صفحة A4 كاملة، لا تقطيع للبطاقات */
+            /* ⑥ حساب أبعاد الصفحات — كل صفحة A4 كاملة، لا تقطيع للبطاقات */
             const isLandscape = settings.pdfOrientation === 'landscape'
             const PDF_W  = isLandscape ? 297 : 210         // عرض الصفحة بالـ mm
             const PDF_H  = isLandscape ? 210 : 297         // ارتفاع A4 بالـ mm
