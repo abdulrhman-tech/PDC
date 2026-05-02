@@ -370,9 +370,9 @@ export default function ProductDetailPage() {
                                     Object.keys(product.attributes).map(k => k.endsWith('_en') ? k.slice(0, -3) : k)
                                 ))
                                 const allEntries: [string, string][] = baseKeys.map(baseKey => {
-                                    const ar = product.attributes[baseKey]
-                                    const en = product.attributes[baseKey + '_en']
-                                    const primary = ar ? String(ar) : (en ? String(en) : '')
+                                    const ar = product.attributes[baseKey] ? String(product.attributes[baseKey]) : ''
+                                    const en = product.attributes[baseKey + '_en'] ? String(product.attributes[baseKey + '_en']) : ''
+                                    const primary = isAr ? (ar || en) : (en || ar)
                                     return [baseKey, primary] as [string, string]
                                 }).filter(([, v]) => v !== '')
                                 const priorityIdx = (k: string) => {

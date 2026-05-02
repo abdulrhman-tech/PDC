@@ -938,9 +938,9 @@ function ProductModal({ product, onClose, lang }: { product: Product; onClose: (
                                 Object.keys(product.attributes).map(k => k.endsWith('_en') ? k.slice(0, -3) : k)
                             ))
                             const entries = baseKeys.map(bk => {
-                                const ar = product.attributes[bk]
-                                const en = product.attributes[bk + '_en']
-                                const v = ar ? String(ar) : (en ? String(en) : '')
+                                const ar = product.attributes[bk] ? String(product.attributes[bk]) : ''
+                                const en = product.attributes[bk + '_en'] ? String(product.attributes[bk + '_en']) : ''
+                                const v = isAr ? (ar || en) : (en || ar)
                                 return [bk, v] as [string, string]
                             }).filter(([, v]) => v !== '')
                             if (entries.length === 0) return null
