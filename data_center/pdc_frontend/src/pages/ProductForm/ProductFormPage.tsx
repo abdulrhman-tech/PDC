@@ -299,13 +299,21 @@ export default function ProductFormPage() {
 
     const renderAttrField = (schema: AttributeSchemaItem) => {
         const val = form.attributes?.[schema.field_key] ?? ''
+        const valEn = form.attributes?.[schema.field_key + '_en'] ?? ''
 
         if (schema.field_type === 'select' || schema.field_type === 'multi_select') {
             return (
                 <select className="form-select" value={val}
                     onChange={e => setAttr(schema.field_key, e.target.value)}>
                     <option value="">اختر {schema.field_label_ar}</option>
-                    {schema.options.map(o => <option key={o} value={o}>{o}</option>)}
+                    {schema.options.map((o, i) => {
+                        const en = schema.options_en?.[i]
+                        return (
+                            <option key={o} value={o}>
+                                {o}{en && en !== o ? ` / ${en}` : ''}
+                            </option>
+                        )
+                    })}
                 </select>
             )
         }
@@ -314,20 +322,31 @@ export default function ProductFormPage() {
                 <select className="form-select" value={val}
                     onChange={e => setAttr(schema.field_key, e.target.value)}>
                     <option value="">—</option>
-                    <option value="نعم">نعم ✓</option>
-                    <option value="لا">لا ✗</option>
+                    <option value="نعم">نعم / Yes ✓</option>
+                    <option value="لا">لا / No ✗</option>
                 </select>
             )
         }
         return (
-            <input
-                type={schema.field_type === 'number' ? 'number' : 'text'}
-                id={`attr-${schema.field_key}`}
-                className="form-input"
-                value={val}
-                onChange={e => setAttr(schema.field_key, e.target.value)}
-                placeholder={schema.help_text_ar || schema.field_label_ar}
-            />
+            <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                    type={schema.field_type === 'number' ? 'number' : 'text'}
+                    id={`attr-${schema.field_key}`}
+                    className="form-input"
+                    value={val}
+                    onChange={e => setAttr(schema.field_key, e.target.value)}
+                    placeholder={schema.help_text_ar || schema.field_label_ar}
+                    style={{ flex: 1, direction: 'rtl' }}
+                />
+                <input
+                    type="text"
+                    className="form-input"
+                    value={valEn}
+                    onChange={e => setAttr(schema.field_key + '_en', e.target.value)}
+                    placeholder={schema.field_label_en || 'English'}
+                    style={{ flex: 1, direction: 'ltr', fontFamily: 'inherit' }}
+                />
+            </div>
         )
     }
 

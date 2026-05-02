@@ -83,8 +83,10 @@ export interface AttributeSchemaItem {
     field_label_en: string
     field_type: 'text' | 'number' | 'select' | 'multi_select' | 'boolean' | 'dimensions'
     options: string[]
+    options_en?: string[]
     is_required: boolean
     unit: string
+    unit_en?: string
     help_text_ar: string
     order: number
 }

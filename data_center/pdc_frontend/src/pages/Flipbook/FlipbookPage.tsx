@@ -933,9 +933,9 @@ function ProductModal({ product, onClose, lang }: { product: Product; onClose: (
                                 {isAr ? product.description_ar : product.description_en}
                             </p>
                         )}
-                        {product.attributes && Object.keys(product.attributes).length > 0 && (
+                        {product.attributes && Object.keys(product.attributes).filter(k => !k.endsWith('_en')).length > 0 && (
                             <div style={{ marginTop: 8 }}>
-                                {Object.entries(product.attributes).slice(0, 6).map(([key, val], i) => (
+                                {Object.entries(product.attributes).filter(([k]) => !k.endsWith('_en')).slice(0, 6).map(([key, val], i) => (
                                     <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "4px 0", borderBottom: "1px solid var(--color-border)", fontSize: 11 }}>
                                         <span style={{ color: "var(--color-text-muted)", minWidth: 80 }}>{key}</span>
                                         <span style={{ color: "var(--color-text-primary)", fontWeight: 500 }}>{val}</span>

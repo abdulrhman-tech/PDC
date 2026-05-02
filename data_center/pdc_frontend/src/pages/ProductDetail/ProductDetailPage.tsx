@@ -350,7 +350,7 @@ export default function ProductDetailPage() {
                                 <span style={{ fontSize: 14, fontWeight: 600, color: specsOpen ? 'var(--color-gold)' : 'var(--color-text-primary)' }}>
                                     {t('product.specs')}
                                     <span style={{ fontSize: 11, marginRight: 8, color: 'var(--color-text-muted)', fontWeight: 400 }}>
-                                        ({Object.keys(product.attributes).length} {t('product.specs_unit')})
+                                        ({Object.keys(product.attributes).filter(k => !k.endsWith('_en')).length} {t('product.specs_unit')})
                                     </span>
                                 </span>
                                 <ChevronDown
@@ -366,7 +366,7 @@ export default function ProductDetailPage() {
                                     'realsize', 'surfacenature', 'general_usage',
                                     'tilethickness', 'designgroup', 'classifications',
                                 ]
-                                const allEntries = Object.entries(product.attributes)
+                                const allEntries = Object.entries(product.attributes).filter(([k]) => !k.endsWith('_en'))
                                 const priorityIdx = (k: string) => {
                                     const i = PRIORITY_KEYS.indexOf(k.toLowerCase())
                                     return i === -1 ? PRIORITY_KEYS.length : i
@@ -397,13 +397,16 @@ export default function ProductDetailPage() {
                                             const labelAr = schemaItem?.label_ar || key
                                             const labelEn = schemaItem?.label_en || ''
                                             const unit = schemaItem?.unit || ''
-                                            let displayValue = String(value)
-                                            if (!isAr && schemaItem?.options && schemaItem.options_en) {
-                                                const idx = schemaItem.options.indexOf(String(value))
-                                                if (idx >= 0 && schemaItem.options_en[idx]) {
-                                                    displayValue = schemaItem.options_en[idx]
-                                                }
-                                            }
+                                            const valueAr = String(value)
+                                            const valueEn = product.attributes[key + '_en']
+                                                ? String(product.attributes[key + '_en'])
+                                                : (() => {
+                                                    if (schemaItem?.options && schemaItem.options_en) {
+                                                        const idx = schemaItem.options.indexOf(valueAr)
+                                                        return idx >= 0 ? (schemaItem.options_en[idx] || '') : ''
+                                                    }
+                                                    return ''
+                                                })()
                                             return (
                                                 <div key={key} style={{
                                                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -421,7 +424,17 @@ export default function ProductDetailPage() {
                                                         )}
                                                         {unit && <span style={{ fontSize: 11, marginRight: 4, opacity: 0.6 }}>({unit})</span>}
                                                     </span>
-                                                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{displayValue}</span>
+                                                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)', textAlign: 'left' }}>
+                                                        {valueAr}
+                                                        {valueEn && valueEn !== valueAr && (
+                                                            <span style={{
+                                                                fontSize: 11, color: 'var(--color-text-secondary)',
+                                                                marginRight: 6, direction: 'ltr', display: 'inline-block',
+                                                            }}>
+                                                                / {valueEn}
+                                                            </span>
+                                                        )}
+                                                    </span>
                                                 </div>
                                             )
                                         })}
