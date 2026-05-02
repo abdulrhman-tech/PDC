@@ -46,6 +46,7 @@ export interface CatalogSettings {
     clientName: string
     language: 'ar' | 'en'
     pdfOrientation: 'portrait' | 'landscape'
+    pdfQuality: 'high' | 'medium' | 'light'
     showProjectsPage: boolean
 }
 
@@ -75,6 +76,7 @@ const DEFAULT_SETTINGS: CatalogSettings = {
     clientName: '',
     language: 'ar',
     pdfOrientation: 'portrait',
+    pdfQuality: 'high',
     showProjectsPage: false,
 }
 
@@ -482,8 +484,17 @@ export default function CatalogGeneratorPage() {
                 })
             )
 
-            /* ⑤ رسم الكتالوج كاملاً على كانفاس بدقة عالية */
-            const SCALE = 3
+            /* ⑤ رسم الكتالوج كاملاً على كانفاس — الدقة حسب اختيار المستخدم
+             *   high   = SCALE 3   (أعلى جودة، JPEG 0.95)
+             *   medium = SCALE 2   (متوازنة، JPEG 0.9)
+             *   light  = SCALE 1.5 (الأخف، JPEG 0.75 — مناسب للواتساب/الإيميل)
+             */
+            const QUALITY_PRESETS = {
+                high:   { scale: 3,   jpegQuality: 0.95 },
+                medium: { scale: 2,   jpegQuality: 0.90 },
+                light:  { scale: 1.5, jpegQuality: 0.75 },
+            } as const
+            const { scale: SCALE, jpegQuality: JPEG_QUALITY } = QUALITY_PRESETS[settings.pdfQuality]
             const canvas = await html2canvas(el, {
                 scale: SCALE,
                 useCORS: true,
@@ -620,7 +631,7 @@ export default function CatalogGeneratorPage() {
                 ctx.fillStyle = '#ffffff'
                 ctx.fillRect(0, 0, canvasW, pageHeightPx)
                 ctx.drawImage(canvas, 0, topPx, canvasW, contentHeightPx, 0, 0, canvasW, contentHeightPx)
-                const imgData = sliceCanvas.toDataURL('image/jpeg', 0.95)
+                const imgData = sliceCanvas.toDataURL('image/jpeg', JPEG_QUALITY)
 
                 if (idx === 0) {
                     pdf = new jsPDF({ orientation: settings.pdfOrientation, unit: 'mm', format: [PDF_W, heightMm] })
@@ -1201,6 +1212,38 @@ export default function CatalogGeneratorPage() {
                                                 <div style={{ fontSize: 10, opacity: 0.7 }}>{labelEn}</div>
                                             </button>
                                         ))}
+                                    </div>
+                                </Section>
+
+                                {/* جودة الطباعة / حجم الملف */}
+                                <Section title="جودة الطباعة">
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        {([
+                                            { val: 'high',   labelAr: 'عالية',  sub: 'للطباعة' },
+                                            { val: 'medium', labelAr: 'متوسطة', sub: 'متوازنة' },
+                                            { val: 'light',  labelAr: 'خفيفة',  sub: 'للمشاركة' },
+                                        ] as const).map(({ val, labelAr, sub }) => (
+                                            <button
+                                                key={val}
+                                                onClick={() => setSetting('pdfQuality', val)}
+                                                style={{
+                                                    flex: 1, padding: '10px 6px', borderRadius: 8, cursor: 'pointer',
+                                                    fontFamily: 'inherit', textAlign: 'center', border: '1px solid',
+                                                    borderColor: settings.pdfQuality === val ? 'var(--color-gold)' : 'var(--color-border-strong)',
+                                                    background: settings.pdfQuality === val ? 'rgba(200,168,75,0.12)' : 'var(--color-surface-raised)',
+                                                    color: settings.pdfQuality === val ? 'var(--color-gold)' : 'var(--color-text-muted)',
+                                                    transition: 'all .15s',
+                                                }}
+                                            >
+                                                <div style={{ fontSize: 12, fontWeight: 700 }}>{labelAr}</div>
+                                                <div style={{ fontSize: 10, marginTop: 2, opacity: 0.75 }}>{sub}</div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 8, lineHeight: 1.5 }}>
+                                        {settings.pdfQuality === 'high'   && 'دقة عالية (×3) — مناسبة للطباعة، حجم أكبر.'}
+                                        {settings.pdfQuality === 'medium' && 'دقة متوسطة (×2) — توازن بين الجودة والحجم.'}
+                                        {settings.pdfQuality === 'light'  && 'دقة خفيفة (×1.5) مع ضغط أعلى — مناسبة للواتساب والإيميل.'}
                                     </div>
                                 </Section>
 
