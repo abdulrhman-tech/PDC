@@ -933,16 +933,28 @@ function ProductModal({ product, onClose, lang }: { product: Product; onClose: (
                                 {isAr ? product.description_ar : product.description_en}
                             </p>
                         )}
-                        {product.attributes && Object.keys(product.attributes).filter(k => !k.endsWith('_en')).length > 0 && (
-                            <div style={{ marginTop: 8 }}>
-                                {Object.entries(product.attributes).filter(([k]) => !k.endsWith('_en')).slice(0, 6).map(([key, val], i) => (
-                                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "4px 0", borderBottom: "1px solid var(--color-border)", fontSize: 11 }}>
-                                        <span style={{ color: "var(--color-text-muted)", minWidth: 80 }}>{key}</span>
-                                        <span style={{ color: "var(--color-text-primary)", fontWeight: 500 }}>{val}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        {product.attributes && (() => {
+                            const baseKeys = Array.from(new Set(
+                                Object.keys(product.attributes).map(k => k.endsWith('_en') ? k.slice(0, -3) : k)
+                            ))
+                            const entries = baseKeys.map(bk => {
+                                const ar = product.attributes[bk]
+                                const en = product.attributes[bk + '_en']
+                                const v = ar ? String(ar) : (en ? String(en) : '')
+                                return [bk, v] as [string, string]
+                            }).filter(([, v]) => v !== '')
+                            if (entries.length === 0) return null
+                            return (
+                                <div style={{ marginTop: 8 }}>
+                                    {entries.slice(0, 6).map(([key, val], i) => (
+                                        <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "4px 0", borderBottom: "1px solid var(--color-border)", fontSize: 11 }}>
+                                            <span style={{ color: "var(--color-text-muted)", minWidth: 80 }}>{key}</span>
+                                            <span style={{ color: "var(--color-text-primary)", fontWeight: 500 }}>{val}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )
+                        })()}
                     </div>
                 </div>
             </div>
