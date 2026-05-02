@@ -3,8 +3,8 @@
  * يدعم: شبكة + قائمة + صفحة غلاف + تجميع حسب القسم + QR code
  */
 import { useMemo } from 'react'
-import { Package } from 'lucide-react'
-import type { Product, CategoryFlat } from '@/types'
+import { Package, Building2, MapPin, Calendar } from 'lucide-react'
+import type { Product, CategoryFlat, Project } from '@/types'
 import type { CatalogSettings } from './CatalogGeneratorPage'
 
 interface Props {
@@ -15,6 +15,7 @@ interface Props {
        full flat shape so callers can pass the same source of truth used
        by the dropdown filter. */
     categories: CategoryFlat[]
+    projects?: Project[]
 }
 
 const THEMES = {
@@ -475,6 +476,218 @@ function ListCard({
     )
 }
 
+/* ══════════════════════════════════════════
+   صفحة مشاريعنا
+══════════════════════════════════════════ */
+function ProjectsPage({
+    projects, settings, theme,
+}: {
+    projects: Project[]
+    settings: CatalogSettings
+    theme: typeof THEMES['gold']
+}) {
+    const lang = settings.language ?? 'ar'
+    if (!projects.length) return null
+
+    return (
+        <div style={{
+            breakBefore: 'page', pageBreakBefore: 'always',
+            background: '#ffffff',
+        }}>
+            {/* رأس صفحة المشاريع */}
+            <div style={{
+                background: theme.dark,
+                padding: '22px 32px',
+                borderBottom: `4px solid ${theme.primary}`,
+                display: 'flex', alignItems: 'center', gap: 16,
+            }}>
+                <div style={{
+                    width: 44, height: 44, borderRadius: 10,
+                    background: `${theme.primary}25`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    border: `1px solid ${theme.primary}40`,
+                }}>
+                    <Building2 size={22} color={theme.primary} />
+                </div>
+                <div>
+                    <div style={{ fontSize: 26, fontWeight: 900, color: theme.primary, letterSpacing: 0.5 }}>
+                        مشاريعنا
+                    </div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
+                        Our Projects
+                    </div>
+                </div>
+                <div style={{ marginRight: 'auto', textAlign: 'left' }}>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
+                        {projects.length} {projects.length === 1 ? 'مشروع' : 'مشاريع'}
+                    </div>
+                </div>
+            </div>
+
+            {/* شريط لوني رفيع */}
+            <div style={{ height: 3, background: `linear-gradient(90deg, ${theme.primary}, ${theme.accent})` }} />
+
+            {/* قائمة المشاريع */}
+            <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+                {projects.map((project, idx) => {
+                    const coverImg =
+                        project.images?.find(i => i.is_cover)?.image_url
+                        || project.images?.[0]?.image_url
+                        || null
+                    const name = lang === 'en'
+                        ? (project.name_en || project.name_ar)
+                        : project.name_ar
+                    const location = lang === 'en'
+                        ? (project.location_en || project.location_ar)
+                        : project.location_ar
+                    const desc = lang === 'en'
+                        ? (project.description_en || project.description_ar)
+                        : project.description_ar
+
+                    return (
+                        <div
+                            key={project.id}
+                            className="catalog-card"
+                            style={{
+                                display: 'flex', flexDirection: 'row',
+                                border: `1px solid ${theme.primary}25`,
+                                borderRadius: 12, overflow: 'hidden',
+                                breakInside: 'avoid', pageBreakInside: 'avoid',
+                                background: '#ffffff',
+                                boxShadow: `0 1px 6px ${theme.primary}10`,
+                            }}
+                        >
+                            {/* صورة الغلاف */}
+                            <div style={{
+                                width: 200, minHeight: 180, flexShrink: 0,
+                                background: '#f3f4f6',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                overflow: 'hidden',
+                                borderLeft: `4px solid ${theme.primary}`,
+                                position: 'relative',
+                            }}>
+                                {/* رقم المشروع */}
+                                <div style={{
+                                    position: 'absolute', top: 8, right: 8, zIndex: 2,
+                                    width: 28, height: 28, borderRadius: '50%',
+                                    background: theme.primary,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 11, fontWeight: 800, color: theme.dark,
+                                }}>
+                                    {String(idx + 1).padStart(2, '0')}
+                                </div>
+                                {coverImg ? (
+                                    <img
+                                        src={coverImg}
+                                        alt={name}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover', minHeight: 180 }}
+                                        onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                                    />
+                                ) : (
+                                    <div style={{ textAlign: 'center', color: '#94a3b8', padding: 24 }}>
+                                        <Building2 size={36} strokeWidth={1.2} />
+                                        <div style={{ fontSize: 10, marginTop: 6 }}>لا توجد صورة</div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* تفاصيل المشروع */}
+                            <div style={{ flex: 1, padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+
+                                {/* الاسم */}
+                                <div style={{ fontSize: 18, fontWeight: 800, color: '#111827', lineHeight: 1.3 }}>
+                                    {name}
+                                </div>
+
+                                {/* الموقع + السنة */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                                    {location && (
+                                        <span style={{
+                                            display: 'flex', alignItems: 'center', gap: 4,
+                                            fontSize: 12, color: theme.accent, fontWeight: 600,
+                                        }}>
+                                            <MapPin size={11} />
+                                            {location}
+                                        </span>
+                                    )}
+                                    {project.project_year && (
+                                        <span style={{
+                                            display: 'flex', alignItems: 'center', gap: 4,
+                                            fontSize: 12, color: '#6b7280', fontWeight: 600,
+                                        }}>
+                                            <Calendar size={11} />
+                                            {project.project_year}
+                                        </span>
+                                    )}
+                                </div>
+
+                                {/* الوصف */}
+                                {desc && (
+                                    <p style={{
+                                        fontSize: 12, color: '#4b5563', lineHeight: 1.75,
+                                        margin: 0,
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 3,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden',
+                                    }}>
+                                        {desc}
+                                    </p>
+                                )}
+
+                                {/* المنتجات المرتبطة */}
+                                {project.products && project.products.length > 0 && (
+                                    <div style={{ marginTop: 'auto' }}>
+                                        <div style={{
+                                            fontSize: 9, fontWeight: 700, color: '#9ca3af',
+                                            textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 6,
+                                        }}>
+                                            المنتجات المستخدمة
+                                        </div>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                                            {project.products.slice(0, 14).map(prod => (
+                                                <div key={prod.id} style={{
+                                                    display: 'flex', alignItems: 'center', gap: 4,
+                                                    background: `${theme.primary}12`,
+                                                    border: `1px solid ${theme.primary}28`,
+                                                    borderRadius: 5, padding: '2px 7px',
+                                                }}>
+                                                    {prod.main_image_url && (
+                                                        <img
+                                                            src={prod.main_image_url}
+                                                            alt={prod.product_name_ar}
+                                                            style={{ width: 16, height: 16, objectFit: 'cover', borderRadius: 2, flexShrink: 0 }}
+                                                            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                                                        />
+                                                    )}
+                                                    <span style={{
+                                                        fontSize: 9, color: theme.accent,
+                                                        fontWeight: 700, fontFamily: 'monospace',
+                                                    }}>
+                                                        {prod.sku}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                            {project.products.length > 14 && (
+                                                <div style={{
+                                                    background: '#f3f4f6', borderRadius: 5,
+                                                    padding: '2px 7px', fontSize: 9, color: '#6b7280', fontWeight: 600,
+                                                }}>
+                                                    +{project.products.length - 14}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )
+                })}
+            </div>
+        </div>
+    )
+}
+
 const COVER_BG =
     'https://pub-aafb229d4aed463c8d2160dc56eb9da7.r2.dev/logo/hf_20260404_220903_0d161b98-63f7-4ff7-ab3f-2c56f56ee979.png'
 
@@ -573,7 +786,7 @@ function CoverPage({ settings, theme }: { settings: CatalogSettings; theme: type
 /* ══════════════════════════════════════════
    المكوّن الرئيسي
 ══════════════════════════════════════════ */
-export default function CatalogPreview({ products, settings, categories }: Props) {
+export default function CatalogPreview({ products, settings, categories, projects = [] }: Props) {
     const theme = THEMES[settings.theme]
     const isList = settings.layout === 'list'
 
@@ -641,6 +854,9 @@ export default function CatalogPreview({ products, settings, categories }: Props
                     {settings.showCoverPage && <span>· <span style={{ color: '#C8A84B' }}>مع غلاف</span></span>}
                     {settings.showQrCode && <span>· <span style={{ color: '#C8A84B' }}>QR</span></span>}
                     {settings.clientName && <span>· <span style={{ color: '#C8A84B' }}>خاص بـ {settings.clientName}</span></span>}
+                    {settings.showProjectsPage && projects.length > 0 && (
+                        <span>· <span style={{ color: '#10B981', fontWeight: 700 }}>مشاريعنا ({projects.length})</span></span>
+                    )}
                 </div>
                 <span style={{ fontSize: 11, color: '#94a3b8' }}>اضغط "طباعة" → "حفظ كـ PDF"</span>
             </div>
@@ -743,6 +959,11 @@ export default function CatalogPreview({ products, settings, categories }: Props
                         ))}
                     </div>
                 </div>
+
+                {/* صفحة مشاريعنا */}
+                {settings.showProjectsPage && projects.length > 0 && (
+                    <ProjectsPage projects={projects} settings={settings} theme={theme} />
+                )}
 
                 {settings.showFooter && (
                     <div className="catalog-footer" style={{

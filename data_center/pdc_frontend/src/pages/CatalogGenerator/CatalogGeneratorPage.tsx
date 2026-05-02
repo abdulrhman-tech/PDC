@@ -5,16 +5,16 @@
 import { useState, useMemo, useRef, useCallback } from 'react'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueries } from '@tanstack/react-query'
 import {
     BookOpen, Search, CheckSquare, Square, Settings2,
     Download, Package, CheckCircle2, GripVertical, X,
     ChevronDown, ChevronUp, LayoutGrid, List, QrCode,
-    FileImage, SplitSquareHorizontal,
+    FileImage, SplitSquareHorizontal, Building2,
 } from 'lucide-react'
-import { productsAPI, categoriesAPI } from '@/api/client'
+import { productsAPI, categoriesAPI, projectsAPI } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
-import type { Product, CategoryFlat } from '@/types'
+import type { Product, CategoryFlat, Project, ProjectListItem } from '@/types'
 import CatalogPreview from './CatalogPreview'
 
 /* ── خيارات التصميم ──────────────────────────────────── */
@@ -44,6 +44,7 @@ export interface CatalogSettings {
     clientName: string
     language: 'ar' | 'en'
     pdfOrientation: 'portrait' | 'landscape'
+    showProjectsPage: boolean
 }
 
 const DEFAULT_SETTINGS: CatalogSettings = {
@@ -72,6 +73,7 @@ const DEFAULT_SETTINGS: CatalogSettings = {
     clientName: '',
     language: 'ar',
     pdfOrientation: 'portrait',
+    showProjectsPage: false,
 }
 
 const THEMES = {
@@ -147,6 +149,11 @@ export default function CatalogGeneratorPage() {
     const dragItem = useRef<number | null>(null)
     const dragOver = useRef<number | null>(null)
 
+    /* ── حالة المشاريع ── */
+    const [selectedProjectIds, setSelectedProjectIds] = useState<Set<number>>(new Set())
+    const [orderedProjectIds, setOrderedProjectIds] = useState<number[]>([])
+    const [projectSearch, setProjectSearch] = useState('')
+
     const setSetting = <K extends keyof CatalogSettings>(k: K, v: CatalogSettings[K]) =>
         setSettings(s => {
             const next = { ...s, [k]: v }
@@ -170,6 +177,43 @@ export default function CatalogGeneratorPage() {
         queryKey: ['categories', 'flat'],
         queryFn: () => categoriesAPI.flat().then(r => r.data),
     })
+
+    /* ── استعلام قائمة المشاريع (يُفعَّل فقط عند تشغيل قسم المشاريع) ── */
+    const { data: projectsListRaw } = useQuery({
+        queryKey: ['catalog-projects-list'],
+        queryFn: () => projectsAPI.list({ is_active: 'true' }).then(r => r.data),
+        enabled: settings.showProjectsPage,
+        staleTime: 5 * 60 * 1000,
+    })
+    const allProjectsList: ProjectListItem[] = useMemo(() => {
+        if (!projectsListRaw) return []
+        if (Array.isArray(projectsListRaw)) return projectsListRaw as ProjectListItem[]
+        return (projectsListRaw as { results?: ProjectListItem[] }).results ?? []
+    }, [projectsListRaw])
+
+    /* ── جلب تفاصيل المشاريع المختارة (كاملة مع الصور والمنتجات) ── */
+    const projectDetailQueries = useQueries({
+        queries: orderedProjectIds.map(id => ({
+            queryKey: ['project-detail', id],
+            queryFn: () => projectsAPI.detail(id).then(r => r.data as Project),
+            enabled: settings.showProjectsPage,
+            staleTime: 5 * 60 * 1000,
+        })),
+    })
+    const selectedProjects: Project[] = useMemo(
+        () => projectDetailQueries.filter(q => q.data).map(q => q.data as Project),
+        [projectDetailQueries],
+    )
+
+    /* ── بحث محلي في قائمة المشاريع ── */
+    const filteredProjects: ProjectListItem[] = useMemo(() => {
+        if (!projectSearch.trim()) return allProjectsList
+        const q = projectSearch.trim().toLowerCase()
+        return allProjectsList.filter(p =>
+            p.name_ar?.toLowerCase().includes(q) ||
+            p.name_en?.toLowerCase().includes(q)
+        )
+    }, [allProjectsList, projectSearch])
 
     /* Flat categories list (CategoryFlat[]) — has path_ar, parent, has_products. */
     const flatCategories: CategoryFlat[] = useMemo(
@@ -246,6 +290,20 @@ export default function CatalogGeneratorPage() {
             .map(id => allProducts.find(p => p.id === id))
             .filter(Boolean) as Product[]
     }, [orderedIds, allProducts])
+
+    /* ── تحديد/إلغاء مشروع ── */
+    const toggleProject = useCallback((id: number) => {
+        setSelectedProjectIds(prev => {
+            const next = new Set(prev)
+            if (next.has(id)) next.delete(id)
+            else next.add(id)
+            return next
+        })
+        setOrderedProjectIds(prev => {
+            if (prev.includes(id)) return prev.filter(x => x !== id)
+            return [...prev, id]
+        })
+    }, [])
 
     /* ── تحديد/إلغاء منتج ── */
     const toggleProduct = useCallback((id: number) => {
@@ -706,7 +764,139 @@ export default function CatalogGeneratorPage() {
                                     })}
                                 </div>
 
-                                {/* المنتجات المختارة — مع سحب لإعادة الترتيب */}
+                                {/* ──── قسم المشاريع ──── */}
+                                <div style={{ marginTop: 16, borderTop: '1px solid var(--color-border)', paddingTop: 14 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                                            <Building2 size={14} color="var(--color-gold)" />
+                                            مشاريعنا في الكتالوج
+                                        </span>
+                                        <Toggle
+                                            value={settings.showProjectsPage}
+                                            onChange={v => setSetting('showProjectsPage', v)}
+                                        />
+                                    </div>
+
+                                    {settings.showProjectsPage && (
+                                        <div>
+                                            {/* بحث في المشاريع */}
+                                            <div style={{ position: 'relative', marginBottom: 8 }}>
+                                                <Search size={12} style={{ position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', pointerEvents: 'none' }} />
+                                                <input
+                                                    value={projectSearch}
+                                                    onChange={e => setProjectSearch(e.target.value)}
+                                                    placeholder="بحث في المشاريع..."
+                                                    style={{
+                                                        width: '100%', padding: '7px 28px 7px 9px', boxSizing: 'border-box',
+                                                        background: 'var(--color-surface-raised)', border: '1px solid var(--color-border-strong)',
+                                                        borderRadius: 7, color: 'var(--color-text-primary)', fontSize: 11,
+                                                    }}
+                                                />
+                                            </div>
+
+                                            {/* قائمة المشاريع */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 260, overflowY: 'auto', marginBottom: 12 }}>
+                                                {allProjectsList.length === 0 ? (
+                                                    <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--color-text-muted)', fontSize: 11 }}>
+                                                        جاري التحميل...
+                                                    </div>
+                                                ) : filteredProjects.length === 0 ? (
+                                                    <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--color-text-muted)', fontSize: 11 }}>
+                                                        لا توجد مشاريع
+                                                    </div>
+                                                ) : filteredProjects.map(proj => {
+                                                    const sel = selectedProjectIds.has(proj.id)
+                                                    return (
+                                                        <div
+                                                            key={proj.id}
+                                                            onClick={() => toggleProject(proj.id)}
+                                                            style={{
+                                                                display: 'flex', alignItems: 'center', gap: 8,
+                                                                padding: '6px 9px', borderRadius: 7, cursor: 'pointer',
+                                                                background: sel ? 'rgba(200,168,75,0.1)' : 'var(--color-surface-raised)',
+                                                                border: `1px solid ${sel ? 'rgba(200,168,75,0.4)' : 'var(--color-border)'}`,
+                                                                transition: 'all .12s',
+                                                            }}
+                                                        >
+                                                            <div style={{
+                                                                width: 32, height: 32, borderRadius: 6, flexShrink: 0,
+                                                                overflow: 'hidden', background: 'var(--color-surface)',
+                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            }}>
+                                                                {proj.cover_image_url
+                                                                    ? <img src={proj.cover_image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                                    : <Building2 size={14} color="var(--color-text-muted)" />
+                                                                }
+                                                            </div>
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                    {proj.name_ar}
+                                                                </div>
+                                                                <div style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
+                                                                    {proj.location_ar || '—'}
+                                                                    {proj.products_count > 0 && ` · ${proj.products_count} منتج`}
+                                                                </div>
+                                                            </div>
+                                                            <div style={{
+                                                                width: 17, height: 17, borderRadius: 4, flexShrink: 0,
+                                                                background: sel ? 'var(--color-gold)' : 'var(--color-surface-hover)',
+                                                                border: `1px solid ${sel ? 'var(--color-gold)' : 'var(--color-border-strong)'}`,
+                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            }}>
+                                                                {sel && <CheckCircle2 size={10} color="#000" strokeWidth={3} />}
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+
+                                            {/* المشاريع المختارة — بترتيبها */}
+                                            {orderedProjectIds.length > 0 && (
+                                                <div>
+                                                    <div style={{
+                                                        fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)',
+                                                        marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5,
+                                                        textTransform: 'uppercase', letterSpacing: 0.5,
+                                                    }}>
+                                                        <Building2 size={11} />
+                                                        المشاريع المختارة ({orderedProjectIds.length})
+                                                    </div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                        {orderedProjectIds.map((id, idx) => {
+                                                            const p = allProjectsList.find(x => x.id === id)
+                                                            if (!p) return null
+                                                            return (
+                                                                <div key={id} style={{
+                                                                    display: 'flex', alignItems: 'center', gap: 6,
+                                                                    padding: '4px 7px', borderRadius: 6,
+                                                                    background: 'var(--color-surface-raised)',
+                                                                    border: '1px solid var(--color-border)',
+                                                                }}>
+                                                                    <span style={{ fontSize: 10, color: 'var(--color-gold)', fontWeight: 700, width: 16, flexShrink: 0 }}>
+                                                                        {String(idx + 1).padStart(2, '0')}
+                                                                    </span>
+                                                                    {p.cover_image_url && (
+                                                                        <img src={p.cover_image_url} alt="" style={{ width: 22, height: 22, borderRadius: 3, objectFit: 'cover', flexShrink: 0 }} />
+                                                                    )}
+                                                                    <span style={{ flex: 1, fontSize: 10, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                        {p.name_ar}
+                                                                    </span>
+                                                                    <button
+                                                                        onClick={e => { e.stopPropagation(); toggleProject(id) }}
+                                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, flexShrink: 0, display: 'flex' }}
+                                                                    >
+                                                                        <X size={11} color="var(--color-text-muted)" />
+                                                                    </button>
+                                                                </div>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
                                 {orderedIds.length > 0 && (
                                     <div>
                                         <div style={{
@@ -991,7 +1181,7 @@ export default function CatalogGeneratorPage() {
 
                 {/* ══ اللوحة اليمنى — المعاينة الفورية ══ */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', background: 'var(--color-surface-raised)' }}>
-                    {selectedProducts.length === 0 ? (
+                    {selectedProducts.length === 0 && (!settings.showProjectsPage || selectedProjects.length === 0) ? (
                         <div style={{
                             height: '100%', display: 'flex', flexDirection: 'column',
                             alignItems: 'center', justifyContent: 'center', gap: 16,
@@ -1008,6 +1198,7 @@ export default function CatalogGeneratorPage() {
                             products={selectedProducts}
                             settings={settings}
                             categories={flatCategories}
+                            projects={settings.showProjectsPage ? selectedProjects : []}
                         />
                     )}
                 </div>
