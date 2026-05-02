@@ -603,7 +603,7 @@ function ProjectsPage({
             <div style={{ height: 4, background: `linear-gradient(90deg, ${theme.primary}, ${theme.accent}, ${theme.primary})` }} />
 
             {/* قائمة المشاريع */}
-            <div style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 22 }}>
+            <div style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 0 }}>
                 {projects.map((project, idx) => {
                     const coverImg =
                         project.images?.find(i => i.is_cover)?.image_url
@@ -619,6 +619,8 @@ function ProjectsPage({
                         ? (project.description_en || project.description_ar)
                         : project.description_ar
 
+                    const isLast = idx === projects.length - 1
+
                     return (
                         <div
                             key={project.id}
@@ -630,6 +632,8 @@ function ProjectsPage({
                                 breakInside: 'avoid', pageBreakInside: 'avoid',
                                 background: '#ffffff',
                                 boxShadow: `0 1px 6px ${theme.primary}10`,
+                                marginBottom: isLast ? 0 : 22,
+                                borderBottom: isLast ? `1px solid ${theme.primary}25` : `2px solid ${theme.primary}35`,
                             }}
                         >
                             {/* صورة الغلاف */}

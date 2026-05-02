@@ -460,26 +460,28 @@ export default function CatalogGeneratorPage() {
                 logging: false,
                 imageTimeout: 20000,
                 onclone: (doc) => {
-                    /* حقن خط 29LT Bukra داخل المستند المستنسَخ */
+                    /* حقن خط 29LT Bukra داخل المستند المستنسَخ — كل وزن بشرطه الخاص */
                     if (fontRegularB64 || fontBoldB64) {
-                        const fontStyle = doc.createElement('style')
-                        fontStyle.textContent = `
+                        const faces: string[] = []
+                        if (fontRegularB64) faces.push(`
                             @font-face {
                                 font-family: '29LT Bukra';
                                 src: url('${fontRegularB64}') format('truetype');
                                 font-weight: 400;
                                 font-style: normal;
-                            }
+                            }`)
+                        if (fontBoldB64) faces.push(`
                             @font-face {
                                 font-family: '29LT Bukra';
                                 src: url('${fontBoldB64}') format('truetype');
                                 font-weight: 700;
                                 font-style: normal;
-                            }
+                            }`)
+                        const fontStyle = doc.createElement('style')
+                        fontStyle.textContent = faces.join('') + `
                             #catalog-print-root, #catalog-print-root * {
                                 font-family: '29LT Bukra', 'Segoe UI', Tahoma, Arial, sans-serif !important;
-                            }
-                        `
+                            }`
                         doc.head.appendChild(fontStyle)
                     }
                     doc.querySelectorAll('.no-print').forEach(n => {
