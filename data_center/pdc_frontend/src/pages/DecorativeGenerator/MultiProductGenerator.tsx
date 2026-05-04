@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import { decorativeAPI, productsAPI } from '@/api/client'
 import type { DecorativeGeneration, MultiProductSlot, MultiProductRole, Product, ProductImage } from '@/types'
 import {
@@ -126,21 +126,50 @@ export default function MultiProductGenerator({ onBack }: Props) {
     const [pickerSearch, setPickerSearch] = useState('')
     const [debouncedPickerSearch, setDebouncedPickerSearch] = useState('')
     const [pickerProductId, setPickerProductId] = useState<number | null>(null)
+    const scrollStateRef = useRef({ hasNextPage: false, isFetchingNextPage: false, fetchNextPage: (() => {}) as () => void })
+    const scrollListenerRef = useRef<{ el: HTMLDivElement; handler: () => void } | null>(null)
 
     useEffect(() => {
         const t = setTimeout(() => setDebouncedPickerSearch(pickerSearch.trim()), 300)
         return () => clearTimeout(t)
     }, [pickerSearch])
 
-    const { data: productsResp, isFetching: productsFetching } = useQuery({
+    const {
+        data: productsPages,
+        isFetching: productsFetching,
+        isFetchingNextPage,
+        hasNextPage,
+        fetchNextPage,
+    } = useInfiniteQuery({
         queryKey: ['products-for-decorative', debouncedPickerSearch],
-        queryFn: () => productsAPI.list({
+        queryFn: ({ pageParam = 1 }) => productsAPI.list({
             page_size: 60,
+            page: pageParam,
             status: 'نشط',
             ...(debouncedPickerSearch ? { search: debouncedPickerSearch } : {}),
-        }),
+        }).then(r => r.data),
+        getNextPageParam: (lastPage: any, allPages: any[]) => lastPage?.next ? allPages.length + 1 : undefined,
+        initialPageParam: 1,
     })
-    const products: Product[] = productsResp?.data?.results ?? productsResp?.data ?? []
+    const products: Product[] = productsPages?.pages?.flatMap((p: any) => p?.results ?? []) ?? []
+
+    scrollStateRef.current = { hasNextPage: !!hasNextPage, isFetchingNextPage, fetchNextPage }
+
+    const pickerGridRef = useCallback((el: HTMLDivElement | null) => {
+        if (scrollListenerRef.current) {
+            scrollListenerRef.current.el.removeEventListener('scroll', scrollListenerRef.current.handler)
+            scrollListenerRef.current = null
+        }
+        if (!el) return
+        const handler = () => {
+            const s = scrollStateRef.current
+            if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200 && s.hasNextPage && !s.isFetchingNextPage) {
+                s.fetchNextPage()
+            }
+        }
+        el.addEventListener('scroll', handler)
+        scrollListenerRef.current = { el, handler }
+    }, [])
 
     const { data: pickerImagesResp, isFetching: pickerImagesFetching } = useQuery({
         queryKey: ['picker-product-images', pickerProductId],
@@ -339,7 +368,6 @@ export default function MultiProductGenerator({ onBack }: Props) {
         setSuggestedSpaceType('')
     }
 
-    const filteredProducts = products
 
     const stepIndex = ['slots', 'analysis', 'settings', 'confirm', 'generating', 'result'].indexOf(step)
 
@@ -481,13 +509,13 @@ export default function MultiProductGenerator({ onBack }: Props) {
                                         onChange={e => setPickerSearch(e.target.value)}
                                     />
                                     {!pickerProductId ? (
-                                        <div className="multi-picker-products">
-                                            {productsFetching && (
+                                        <div ref={pickerGridRef} className="multi-picker-products" style={{ maxHeight: 400, overflowY: 'auto' }}>
+                                            {productsFetching && !isFetchingNextPage && (
                                                 <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
                                                     <Loader2 size={24} className="spin" />
                                                 </div>
                                             )}
-                                            {!productsFetching && filteredProducts.map(p => (
+                                            {products.map(p => (
                                                 <div
                                                     key={p.id}
                                                     className="multi-picker-product-card"
@@ -500,6 +528,11 @@ export default function MultiProductGenerator({ onBack }: Props) {
                                                     </div>
                                                 </div>
                                             ))}
+                                            {isFetchingNextPage && (
+                                                <div style={{ display: 'flex', justifyContent: 'center', padding: 16 }}>
+                                                    <Loader2 size={20} className="spin" />
+                                                </div>
+                                            )}
                                         </div>
                                     ) : (
                                         <div className="multi-picker-images">

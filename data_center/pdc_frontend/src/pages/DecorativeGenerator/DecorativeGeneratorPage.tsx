@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import { decorativeAPI, productsAPI } from '@/api/client'
 import type { DecorativeGeneration, Product, ProductImage } from '@/types'
 import {
@@ -306,20 +306,50 @@ function SingleProductGenerator({ onBackToChoose }: { onBackToChoose: () => void
     const [attachStatus, setAttachStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
     const [attachMessage, setAttachMessage] = useState('')
 
+    const scrollStateRef = useRef({ hasNextPage: false, isFetchingNextPage: false, fetchNextPage: (() => {}) as () => void })
+    const scrollListenerRef = useRef<{ el: HTMLDivElement; handler: () => void } | null>(null)
+
     useEffect(() => {
         const t = setTimeout(() => setDebouncedPickerSearch(pickerSearch.trim()), 300)
         return () => clearTimeout(t)
     }, [pickerSearch])
 
-    const { data: productsResp, isFetching: productsFetching } = useQuery({
+    const {
+        data: productsPages,
+        isFetching: productsFetching,
+        isFetchingNextPage,
+        hasNextPage,
+        fetchNextPage,
+    } = useInfiniteQuery({
         queryKey: ['products-for-decorative', debouncedPickerSearch],
-        queryFn: () => productsAPI.list({
+        queryFn: ({ pageParam = 1 }) => productsAPI.list({
             page_size: 60,
+            page: pageParam,
             status: 'نشط',
             ...(debouncedPickerSearch ? { search: debouncedPickerSearch } : {}),
-        }),
+        }).then(r => r.data),
+        getNextPageParam: (lastPage: any, allPages: any[]) => lastPage?.next ? allPages.length + 1 : undefined,
+        initialPageParam: 1,
     })
-    const products: Product[] = productsResp?.data?.results ?? productsResp?.data ?? []
+    const products: Product[] = productsPages?.pages?.flatMap((p: any) => p?.results ?? []) ?? []
+
+    scrollStateRef.current = { hasNextPage: !!hasNextPage, isFetchingNextPage, fetchNextPage }
+
+    const pickerGridRef = useCallback((el: HTMLDivElement | null) => {
+        if (scrollListenerRef.current) {
+            scrollListenerRef.current.el.removeEventListener('scroll', scrollListenerRef.current.handler)
+            scrollListenerRef.current = null
+        }
+        if (!el) return
+        const handler = () => {
+            const s = scrollStateRef.current
+            if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200 && s.hasNextPage && !s.isFetchingNextPage) {
+                s.fetchNextPage()
+            }
+        }
+        el.addEventListener('scroll', handler)
+        scrollListenerRef.current = { el, handler }
+    }, [])
 
     const { data: historyResp, refetch: refetchHistory } = useQuery({
         queryKey: ['decorative-history'],
@@ -568,7 +598,6 @@ function SingleProductGenerator({ onBackToChoose }: { onBackToChoose: () => void
 
     const templates = generationMode !== 'showcase' ? getTemplatesForMode(generationMode) : []
 
-    const filteredProducts = products
 
     const pickerProduct = pickerProductId ? products.find(p => p.id === pickerProductId) : null
     const pickerImages: ProductImage[] = pickerImagesResp?.data ?? []
@@ -1437,13 +1466,13 @@ function SingleProductGenerator({ onBackToChoose }: { onBackToChoose: () => void
                                         autoFocus
                                     />
                                 </div>
-                                <div className="picker-products-grid picker-modal-grid">
-                                    {productsFetching && (
+                                <div ref={pickerGridRef} className="picker-products-grid picker-modal-grid" style={{ maxHeight: 420, overflowY: 'auto' }}>
+                                    {productsFetching && !isFetchingNextPage && (
                                         <div style={{ gridColumn: '1/-1', display: 'flex', justifyContent: 'center', padding: 24 }}>
                                             <Loader2 size={24} className="spin" />
                                         </div>
                                     )}
-                                    {!productsFetching && filteredProducts.map(p => {
+                                    {products.map(p => {
                                         const thumb = p.main_image_url
                                         return (
                                             <button
@@ -1466,7 +1495,12 @@ function SingleProductGenerator({ onBackToChoose }: { onBackToChoose: () => void
                                             </button>
                                         )
                                     })}
-                                    {!productsFetching && filteredProducts.length === 0 && (
+                                    {isFetchingNextPage && (
+                                        <div style={{ gridColumn: '1/-1', display: 'flex', justifyContent: 'center', padding: 16 }}>
+                                            <Loader2 size={20} className="spin" />
+                                        </div>
+                                    )}
+                                    {!productsFetching && products.length === 0 && (
                                         <p className="picker-empty">لا توجد منتجات تطابق البحث</p>
                                     )}
                                 </div>
