@@ -679,7 +679,12 @@ class ProductViewSet(viewsets.ModelViewSet):
                 brands_map[b.name_ar] = b
             brands_map[b.name] = b
 
-        created = []
+        # Pre-fetch ALL existing SKUs in one query (avoids N+1 per row)
+        existing_skus = set(Product.objects.values_list('sku', flat=True))
+
+        to_create = []       # Product instances for bulk_create
+        created_meta = []    # parallel list: {row, sku, name} for response
+        pending_skus = set() # SKUs queued this batch (catch in-file duplicates)
         errors = []
 
         for row_num, row in enumerate(rows[2:], start=3):
@@ -714,7 +719,8 @@ class ProductViewSet(viewsets.ModelViewSet):
                 else:
                     cat_obj = cats[cat_slug]
 
-            if sku and Product.objects.filter(sku=sku).exists():
+            # Single set-lookup instead of a per-row DB query
+            if sku and (sku in existing_skus or sku in pending_skus):
                 row_errors.append(f'الـ SKU "{sku}" موجود مسبقاً')
 
             if row_errors:
@@ -728,7 +734,7 @@ class ProductViewSet(viewsets.ModelViewSet):
                 except ValueError:
                     price = None
 
-                create_kwargs = dict(
+                obj = Product(
                     sku=sku,
                     product_name_ar=name_ar,
                     product_name_en=row_data.get('product_name_en', ''),
@@ -743,29 +749,47 @@ class ProductViewSet(viewsets.ModelViewSet):
                     updated_by=request.user,
                 )
                 if price is not None:
-                    create_kwargs['price_sar'] = price
+                    obj.price_sar = price
 
-                # Brand
                 brand_name = row_data.get('brand_name', '').strip()
                 if brand_name and brand_name in brands_map:
-                    create_kwargs['brand'] = brands_map[brand_name]
+                    obj.brand = brands_map[brand_name]
 
-                # Dynamic attributes
                 attributes = {}
                 for col_key, attr_key in attr_schemas.items():
                     val = row_data.get(col_key, '').strip()
                     if val:
                         attributes[attr_key] = val
                 if attributes:
-                    create_kwargs['attributes'] = attributes
+                    obj.attributes = attributes
 
-                product = Product.objects.create(**create_kwargs)
-                created.append({'row': row_num, 'sku': sku, 'name': name_ar, 'id': product.id})
+                to_create.append(obj)
+                pending_skus.add(sku)
+                created_meta.append({'row': row_num, 'sku': sku, 'name': name_ar})
             except Exception as e:
                 errors.append({'row': row_num, 'sku': sku, 'errors': [str(e)]})
 
-        # Diagnostic counters help operators detect "silent loss" cases
-        # like the one caused by stale workbook <dimension> metadata.
+        # ── Bulk-insert all valid rows in one DB round-trip ───────────────
+        import logging as _log
+        _RESPONSE_CAP = 500
+        created = []
+        if to_create:
+            try:
+                inserted = Product.objects.bulk_create(to_create, batch_size=500)
+                sku_to_id = {o.sku: o.id for o in inserted}
+                for m in created_meta:
+                    m['id'] = sku_to_id.get(m['sku'])
+                created = created_meta
+            except Exception as bulk_exc:
+                _log.getLogger(__name__).error(f'bulk_create failed, falling back row-by-row: {bulk_exc}')
+                for obj, meta in zip(to_create, created_meta):
+                    try:
+                        obj.save()
+                        meta['id'] = obj.id
+                        created.append(meta)
+                    except Exception as row_exc:
+                        errors.append({'row': meta['row'], 'sku': meta['sku'], 'errors': [str(row_exc)]})
+
         total_rows_in_file = len(rows)
         data_rows_seen = max(0, total_rows_in_file - 2)  # rows 1+2 are header
         log_action(request.user, 'excel_import', None,
@@ -778,8 +802,9 @@ class ProductViewSet(viewsets.ModelViewSet):
             'error_count': len(errors),
             'total_rows_in_file': total_rows_in_file,
             'data_rows_seen': data_rows_seen,
-            'created': created,
-            'errors': errors,
+            'created': created[:_RESPONSE_CAP],
+            'errors': errors[:_RESPONSE_CAP],
+            'truncated': len(created) > _RESPONSE_CAP or len(errors) > _RESPONSE_CAP,
         })
 
     def _import_sap_excel(self, request, rows, headers):
@@ -924,9 +949,21 @@ class ProductViewSet(viewsets.ModelViewSet):
                 return str(int(v))
             return str(v).strip()
 
-        created = []
-        updated = []
+        created_meta = []
+        updated_meta = []
         errors = []
+
+        # ── Pre-fetch existing products in ONE query ──────────────────────
+        # First pass: collect every non-blank SKU mentioned in the file.
+        all_file_skus = set()
+        for _row in rows[1:]:
+            _s = _cell(_row, sku_idx)
+            if _s:
+                all_file_skus.add(_s)
+        existing_map = {p.sku: p for p in Product.objects.filter(sku__in=all_file_skus)}
+
+        to_create = []   # new Product instances
+        to_update = []   # existing Product instances (mutated in-place)
 
         for row_num, row in enumerate(rows[1:], start=2):
             sku = _cell(row, sku_idx)
@@ -973,48 +1010,89 @@ class ProductViewSet(viewsets.ModelViewSet):
                 attributes[schema.field_key] = val
 
             try:
-                existing = Product.objects.filter(sku=sku).first()
-                base_kwargs = dict(
-                    product_name_ar=name_ar,
-                    category=cat_obj,
-                    updated_by=request.user,
-                )
-                # Optional simple fields if present in the file
+                existing = existing_map.get(sku)
                 brand_name = _cell(row, brand_idx).lower() if brand_idx is not None else ''
-                if brand_name and brand_name in brands_map:
-                    base_kwargs['brand'] = brands_map[brand_name]
-
                 origin = _cell(row, origin_idx)
-                if origin:
-                    base_kwargs['origin_country'] = origin
-
                 color = _cell(row, color_idx)
-                if color:
-                    base_kwargs['color'] = color
 
                 if existing:
-                    for k, v in base_kwargs.items():
-                        setattr(existing, k, v)
+                    existing.product_name_ar = name_ar
+                    existing.category = cat_obj
+                    existing.updated_by = request.user
+                    if brand_name and brand_name in brands_map:
+                        existing.brand = brands_map[brand_name]
+                    if origin:
+                        existing.origin_country = origin
+                    if color:
+                        existing.color = color
                     # Merge attributes (new values overwrite, others kept)
                     merged = dict(existing.attributes or {})
                     merged.update(attributes)
                     existing.attributes = merged
-                    existing.save()
-                    updated.append({'row': row_num, 'sku': sku,
-                                    'name': name_ar, 'id': existing.id})
+                    to_update.append(existing)
+                    updated_meta.append({'row': row_num, 'sku': sku,
+                                         'name': name_ar, 'id': existing.id})
                 else:
-                    base_kwargs.update(
+                    obj = Product(
                         sku=sku,
+                        product_name_ar=name_ar,
+                        category=cat_obj,
                         attributes=attributes,
                         status='مسودة',
                         inventory_type='دوري',
                         created_by=request.user,
+                        updated_by=request.user,
                     )
-                    product = Product.objects.create(**base_kwargs)
-                    created.append({'row': row_num, 'sku': sku,
-                                    'name': name_ar, 'id': product.id})
+                    if brand_name and brand_name in brands_map:
+                        obj.brand = brands_map[brand_name]
+                    if origin:
+                        obj.origin_country = origin
+                    if color:
+                        obj.color = color
+                    to_create.append(obj)
+                    created_meta.append({'row': row_num, 'sku': sku, 'name': name_ar})
             except Exception as e:
                 errors.append({'row': row_num, 'sku': sku, 'errors': [str(e)]})
+
+        # ── Bulk DB operations ────────────────────────────────────────────
+        import logging as _log
+        _RESPONSE_CAP = 500
+        created = []
+        updated = []
+
+        if to_create:
+            try:
+                inserted = Product.objects.bulk_create(to_create, batch_size=500)
+                sku_to_id = {o.sku: o.id for o in inserted}
+                for m in created_meta:
+                    m['id'] = sku_to_id.get(m['sku'])
+                created = created_meta
+            except Exception as bulk_exc:
+                _log.getLogger(__name__).error(f'SAP bulk_create failed, falling back: {bulk_exc}')
+                for obj, meta in zip(to_create, created_meta):
+                    try:
+                        obj.save()
+                        meta['id'] = obj.id
+                        created.append(meta)
+                    except Exception as row_exc:
+                        errors.append({'row': meta['row'], 'sku': meta['sku'], 'errors': [str(row_exc)]})
+
+        if to_update:
+            _update_fields = [
+                'product_name_ar', 'category', 'updated_by',
+                'brand', 'origin_country', 'color', 'attributes',
+            ]
+            try:
+                Product.objects.bulk_update(to_update, _update_fields, batch_size=500)
+                updated = updated_meta
+            except Exception as bulk_exc:
+                _log.getLogger(__name__).error(f'SAP bulk_update failed, falling back: {bulk_exc}')
+                for obj, meta in zip(to_update, updated_meta):
+                    try:
+                        obj.save()
+                        updated.append(meta)
+                    except Exception as row_exc:
+                        errors.append({'row': meta['row'], 'sku': meta['sku'], 'errors': [str(row_exc)]})
 
         # Diagnostic counters help operators detect "silent loss" cases
         # like the one caused by stale workbook <dimension> metadata.
@@ -1034,9 +1112,11 @@ class ProductViewSet(viewsets.ModelViewSet):
             'error_count': len(errors),
             'total_rows_in_file': total_rows_in_file,
             'data_rows_seen': data_rows_seen,
-            'created': created,
-            'updated': updated,
-            'errors': errors,
+            'created': created[:_RESPONSE_CAP],
+            'updated': updated[:_RESPONSE_CAP],
+            'errors': errors[:_RESPONSE_CAP],
+            'truncated': (len(created) > _RESPONSE_CAP or len(updated) > _RESPONSE_CAP
+                          or len(errors) > _RESPONSE_CAP),
         })
 
     @action(detail=True, methods=['post'], url_path='images/generate-url', permission_classes=[permissions.IsAuthenticated])

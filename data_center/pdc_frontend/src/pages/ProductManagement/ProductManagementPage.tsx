@@ -48,6 +48,7 @@ interface ImportResult {
     format?: string
     total_rows_in_file?: number
     data_rows_seen?: number
+    truncated?: boolean
     created: { row: number; sku: string; name: string }[]
     updated?: { row: number; sku: string; name: string }[]
     errors: { row: number; sku: string; errors: string[] }[]
@@ -288,6 +289,11 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
                                 </div>
                             </div>
                         </div>
+                        {result.truncated && (
+                            <div style={{ padding: '8px 16px', background: 'rgba(234,179,8,0.08)', borderTop: '1px solid rgba(234,179,8,0.2)', fontSize: 12, color: '#b45309' }}>
+                                ملاحظة: تم عرض أول 500 سطر فقط من النتائج — الأعداد الإجمالية أعلاه دقيقة
+                            </div>
+                        )}
                         {result.errors.length > 0 && (
                             <div style={{ padding: '12px 16px', maxHeight: 200, overflowY: 'auto', borderTop: '1px solid var(--color-border)' }}>
                                 <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 8, fontWeight: 600 }}>تفاصيل الأخطاء</div>
@@ -301,7 +307,7 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
                         )}
                         {result.created.length > 0 && (
                             <div style={{ padding: '10px 16px', borderTop: '1px solid var(--color-border)', maxHeight: 150, overflowY: 'auto' }}>
-                                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6, fontWeight: 600 }}>المنتجات المضافة</div>
+                                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6, fontWeight: 600 }}>المنتجات المضافة (أول 500)</div>
                                 {result.created.map((c, i) => (
                                     <div key={i} style={{ fontSize: 11, color: 'var(--color-text-secondary)', padding: '2px 0', borderBottom: '1px solid var(--color-border)' }}>
                                         <span style={{ color: '#27AE60', marginLeft: 6 }}>✓</span>{c.sku} — {c.name}

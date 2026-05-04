@@ -76,6 +76,7 @@ export const productsAPI = {
     importExcel: (formData: FormData) =>
         api.post('/products/import-excel/', formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 300000,
         }),
     downloadImportTemplate: (categoryId?: string) =>
         api.get('/products/import-excel/template/', {
