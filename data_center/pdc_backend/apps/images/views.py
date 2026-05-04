@@ -475,6 +475,7 @@ def attach_to_product(request, generation_id):
         'aiquickdraw.com',
         'tempfile.aiquickdraw.com',
         'res.cloudinary.com',
+        'r2.dev',
     }
     parsed = urlparse(result_url)
     host = parsed.hostname or ''
