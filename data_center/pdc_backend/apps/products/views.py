@@ -953,14 +953,20 @@ class ProductViewSet(viewsets.ModelViewSet):
         updated_meta = []
         errors = []
 
-        # ── Pre-fetch existing products in ONE query ──────────────────────
+        # ── Pre-fetch existing products in chunked queries ────────────────
         # First pass: collect every non-blank SKU mentioned in the file.
         all_file_skus = set()
         for _row in rows[1:]:
             _s = _cell(_row, sku_idx)
             if _s:
                 all_file_skus.add(_s)
-        existing_map = {p.sku: p for p in Product.objects.filter(sku__in=all_file_skus)}
+        # Chunk into batches of 1 000 to avoid PostgreSQL's 65 535-parameter
+        # bind-parameter limit on very large files.
+        existing_map = {}
+        _skus_list = list(all_file_skus)
+        for _i in range(0, len(_skus_list), 1000):
+            for _p in Product.objects.filter(sku__in=_skus_list[_i:_i + 1000]):
+                existing_map[_p.sku] = _p
 
         to_create = []   # new Product instances
         to_update = []   # existing Product instances (mutated in-place)
@@ -1062,7 +1068,12 @@ class ProductViewSet(viewsets.ModelViewSet):
 
         if to_create:
             try:
-                inserted = Product.objects.bulk_create(to_create, batch_size=500)
+                # ignore_conflicts=True: if a duplicate somehow slips past the
+                # pre-fetch (e.g. concurrent import, stale data), skip it
+                # silently instead of crashing and triggering the slow fallback.
+                inserted = Product.objects.bulk_create(
+                    to_create, batch_size=500, ignore_conflicts=True
+                )
                 sku_to_id = {o.sku: o.id for o in inserted}
                 for m in created_meta:
                     m['id'] = sku_to_id.get(m['sku'])
