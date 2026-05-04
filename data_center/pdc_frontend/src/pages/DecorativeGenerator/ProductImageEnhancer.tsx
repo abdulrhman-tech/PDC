@@ -83,11 +83,39 @@ export default function ProductImageEnhancer({ onBackToChoose }: Props) {
 
     const fileInputRef = useRef<HTMLInputElement>(null)
 
-    const { data: productsResp } = useQuery({
-        queryKey: ['products', 'enhance', 'list'],
-        queryFn: () => productsAPI.list({ page_size: 200, status: 'نشط' }),
+    const [debouncedPickerSearch, setDebouncedPickerSearch] = useState('')
+    const [linkSearch, setLinkSearch] = useState('')
+    const [debouncedLinkSearch, setDebouncedLinkSearch] = useState('')
+
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedPickerSearch(pickerSearch.trim()), 300)
+        return () => clearTimeout(t)
+    }, [pickerSearch])
+
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedLinkSearch(linkSearch.trim()), 300)
+        return () => clearTimeout(t)
+    }, [linkSearch])
+
+    const { data: productsResp, isFetching: productsFetching } = useQuery({
+        queryKey: ['products', 'enhance', 'list', debouncedPickerSearch],
+        queryFn: () => productsAPI.list({
+            page_size: 60,
+            status: 'نشط',
+            ...(debouncedPickerSearch ? { search: debouncedPickerSearch } : {}),
+        }),
     })
     const products: Product[] = productsResp?.data?.results || productsResp?.data || []
+
+    const { data: linkProductsResp } = useQuery({
+        queryKey: ['products', 'enhance', 'link', debouncedLinkSearch],
+        queryFn: () => productsAPI.list({
+            page_size: 60,
+            status: 'نشط',
+            ...(debouncedLinkSearch ? { search: debouncedLinkSearch } : {}),
+        }),
+    })
+    const linkProducts: Product[] = linkProductsResp?.data?.results || linkProductsResp?.data || []
 
     const { data: pickerImagesResp, isFetching: pickerImagesFetching } = useQuery({
         queryKey: ['products', 'enhance', 'images', pickerProductId],
@@ -96,12 +124,7 @@ export default function ProductImageEnhancer({ onBackToChoose }: Props) {
     })
     const pickerImages: ProductImage[] = pickerImagesResp?.data?.results || pickerImagesResp?.data || []
 
-    const filteredProducts = products.filter(p => {
-        const q = pickerSearch.trim().toLowerCase()
-        if (!q) return true
-        return (p.product_name_ar || '').toLowerCase().includes(q) ||
-               (p.sku || '').toLowerCase().includes(q)
-    })
+    const filteredProducts = products
     const pickerProduct = pickerProductId ? products.find(p => p.id === pickerProductId) : null
 
     const uploadMutation = useMutation({
@@ -377,18 +400,25 @@ export default function ProductImageEnhancer({ onBackToChoose }: Props) {
                                     </div>
                                 )}
 
-                                {imageUrl && products.length > 0 && (
+                                {imageUrl && (
                                     <div className="enhance-link-product">
                                         <label className="form-label">
                                             <Package size={14} /> ربط بمنتج (اختياري — للتحقق من المطابقة وللحفظ في الكتالوج لاحقاً)
                                         </label>
+                                        <input
+                                            className="form-input"
+                                            placeholder="ابحث بالاسم أو SKU..."
+                                            value={linkSearch}
+                                            onChange={e => setLinkSearch(e.target.value)}
+                                            style={{ marginBottom: 6 }}
+                                        />
                                         <select
                                             className="form-input"
                                             value={selectedProductId || ''}
                                             onChange={(e) => setSelectedProductId(e.target.value ? Number(e.target.value) : undefined)}
                                         >
                                             <option value="">— بدون ربط —</option>
-                                            {products.slice(0, 200).map(p => (
+                                            {linkProducts.map(p => (
                                                 <option key={p.id} value={p.id}>
                                                     {p.product_name_ar} ({p.sku})
                                                 </option>
@@ -841,7 +871,12 @@ export default function ProductImageEnhancer({ onBackToChoose }: Props) {
                                     />
                                 </div>
                                 <div className="picker-products-grid picker-modal-grid">
-                                    {filteredProducts.slice(0, 60).map(p => {
+                                    {productsFetching && (
+                                        <div style={{ gridColumn: '1/-1', display: 'flex', justifyContent: 'center', padding: 24 }}>
+                                            <Loader2 size={24} className="spin" />
+                                        </div>
+                                    )}
+                                    {!productsFetching && filteredProducts.map(p => {
                                         const thumb = p.main_image_url
                                         return (
                                             <button
@@ -864,7 +899,7 @@ export default function ProductImageEnhancer({ onBackToChoose }: Props) {
                                             </button>
                                         )
                                     })}
-                                    {filteredProducts.length === 0 && (
+                                    {!productsFetching && filteredProducts.length === 0 && (
                                         <p className="picker-empty">لا توجد منتجات تطابق البحث</p>
                                     )}
                                 </div>

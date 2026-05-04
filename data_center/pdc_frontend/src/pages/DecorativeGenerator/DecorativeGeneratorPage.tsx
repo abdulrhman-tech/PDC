@@ -301,13 +301,23 @@ function SingleProductGenerator({ onBackToChoose }: { onBackToChoose: () => void
     const [sourceMode, setSourceMode] = useState<'choose' | 'upload' | 'product'>('choose')
     const [showProductPicker, setShowProductPicker] = useState(false)
     const [pickerSearch, setPickerSearch] = useState('')
+    const [debouncedPickerSearch, setDebouncedPickerSearch] = useState('')
     const [pickerProductId, setPickerProductId] = useState<number | null>(null)
     const [attachStatus, setAttachStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
     const [attachMessage, setAttachMessage] = useState('')
 
-    const { data: productsResp } = useQuery({
-        queryKey: ['products-for-decorative'],
-        queryFn: () => productsAPI.list({ page_size: 200, status: 'نشط' }),
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedPickerSearch(pickerSearch.trim()), 300)
+        return () => clearTimeout(t)
+    }, [pickerSearch])
+
+    const { data: productsResp, isFetching: productsFetching } = useQuery({
+        queryKey: ['products-for-decorative', debouncedPickerSearch],
+        queryFn: () => productsAPI.list({
+            page_size: 60,
+            status: 'نشط',
+            ...(debouncedPickerSearch ? { search: debouncedPickerSearch } : {}),
+        }),
     })
     const products: Product[] = productsResp?.data?.results ?? productsResp?.data ?? []
 
@@ -558,14 +568,7 @@ function SingleProductGenerator({ onBackToChoose }: { onBackToChoose: () => void
 
     const templates = generationMode !== 'showcase' ? getTemplatesForMode(generationMode) : []
 
-    const filteredProducts = products.filter(p => {
-        if (!pickerSearch.trim()) return true
-        const q = pickerSearch.toLowerCase()
-        return (
-            p.product_name_ar?.toLowerCase().includes(q) ||
-            p.sku?.toLowerCase().includes(q)
-        )
-    })
+    const filteredProducts = products
 
     const pickerProduct = pickerProductId ? products.find(p => p.id === pickerProductId) : null
     const pickerImages: ProductImage[] = pickerImagesResp?.data ?? []
@@ -1435,7 +1438,12 @@ function SingleProductGenerator({ onBackToChoose }: { onBackToChoose: () => void
                                     />
                                 </div>
                                 <div className="picker-products-grid picker-modal-grid">
-                                    {filteredProducts.slice(0, 60).map(p => {
+                                    {productsFetching && (
+                                        <div style={{ gridColumn: '1/-1', display: 'flex', justifyContent: 'center', padding: 24 }}>
+                                            <Loader2 size={24} className="spin" />
+                                        </div>
+                                    )}
+                                    {!productsFetching && filteredProducts.map(p => {
                                         const thumb = p.main_image_url
                                         return (
                                             <button
@@ -1458,7 +1466,7 @@ function SingleProductGenerator({ onBackToChoose }: { onBackToChoose: () => void
                                             </button>
                                         )
                                     })}
-                                    {filteredProducts.length === 0 && (
+                                    {!productsFetching && filteredProducts.length === 0 && (
                                         <p className="picker-empty">لا توجد منتجات تطابق البحث</p>
                                     )}
                                 </div>

@@ -197,15 +197,25 @@ export default function DualSameCategoryGenerator({ onBack }: Props) {
 
     const fileInputRefs = useRef<(HTMLInputElement | null)[]>([])
 
-    const { data: productsResp } = useQuery({
-        queryKey: ['products-for-decorative'],
-        queryFn: () => productsAPI.list({ page_size: 200, status: 'نشط' }),
-    })
-    const products: Product[] = productsResp?.data?.results ?? productsResp?.data ?? []
-
     const [pickerSlotIdx, setPickerSlotIdx] = useState<number | null>(null)
     const [pickerSearch, setPickerSearch] = useState('')
+    const [debouncedPickerSearch, setDebouncedPickerSearch] = useState('')
     const [pickerProductId, setPickerProductId] = useState<number | null>(null)
+
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedPickerSearch(pickerSearch.trim()), 300)
+        return () => clearTimeout(t)
+    }, [pickerSearch])
+
+    const { data: productsResp, isFetching: productsFetching } = useQuery({
+        queryKey: ['products-for-decorative', debouncedPickerSearch],
+        queryFn: () => productsAPI.list({
+            page_size: 60,
+            status: 'نشط',
+            ...(debouncedPickerSearch ? { search: debouncedPickerSearch } : {}),
+        }),
+    })
+    const products: Product[] = productsResp?.data?.results ?? productsResp?.data ?? []
 
     const { data: pickerImagesResp, isFetching: pickerImagesFetching } = useQuery({
         queryKey: ['picker-product-images', pickerProductId],
@@ -376,11 +386,7 @@ export default function DualSameCategoryGenerator({ onBack }: Props) {
         setSuggestedSpaceType('')
     }
 
-    const filteredProducts = products.filter(p => {
-        if (!pickerSearch.trim()) return true
-        const q = pickerSearch.toLowerCase()
-        return p.product_name_ar?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q)
-    })
+    const filteredProducts = products
 
     const stepIndex = ['slots', 'analysis', 'pattern', 'settings', 'confirm', 'generating', 'result'].indexOf(step)
     const surfaceLabel = SURFACE_OPTIONS.find(s => s.value === surface)?.label || 'أرضية'
@@ -541,7 +547,12 @@ export default function DualSameCategoryGenerator({ onBack }: Props) {
                                     />
                                     {!pickerProductId ? (
                                         <div className="multi-picker-products">
-                                            {filteredProducts.slice(0, 20).map(p => (
+                                            {productsFetching && (
+                                                <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
+                                                    <Loader2 size={24} className="spin" />
+                                                </div>
+                                            )}
+                                            {!productsFetching && filteredProducts.map(p => (
                                                 <div
                                                     key={p.id}
                                                     className="multi-picker-product-card"
