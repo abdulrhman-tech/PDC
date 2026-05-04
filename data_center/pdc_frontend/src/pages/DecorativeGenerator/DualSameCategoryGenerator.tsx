@@ -220,7 +220,6 @@ export default function DualSameCategoryGenerator({ onBack }: Props) {
         queryFn: ({ pageParam = 1 }) => productsAPI.list({
             page_size: 60,
             page: pageParam,
-            status: 'نشط',
             ...(debouncedPickerSearch ? { search: debouncedPickerSearch } : {}),
         }).then(r => r.data),
         getNextPageParam: (lastPage: any, allPages: any[]) => lastPage?.next ? allPages.length + 1 : undefined,
