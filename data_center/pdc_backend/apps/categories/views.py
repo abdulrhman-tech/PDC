@@ -141,6 +141,16 @@ class IsSuperAdminOrReadOnly(permissions.BasePermission):
         return request.user.is_authenticated and request.user.role == 'super_admin'
 
 
+_CAT_FLAT_KEY = 'categories:flat:v2'
+_CAT_TREE_KEY = 'categories:tree:v2'
+_CAT_CACHE_TTL = 300   # 5 minutes — invalidated immediately on any write
+
+
+def _invalidate_category_cache():
+    from django.core.cache import cache
+    cache.delete_many([_CAT_FLAT_KEY, _CAT_TREE_KEY])
+
+
 class CategoryViewSet(viewsets.ModelViewSet):
     """
     Category CRUD + tree/flat/attributes/children actions.
@@ -153,6 +163,18 @@ class CategoryViewSet(viewsets.ModelViewSet):
       POST /categories/{id}/children/    — add child category
     """
     permission_classes = [IsSuperAdminOrReadOnly]
+
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        _invalidate_category_cache()
+
+    def perform_update(self, serializer):
+        super().perform_update(serializer)
+        _invalidate_category_cache()
+
+    def perform_destroy(self, instance):
+        super().perform_destroy(instance)
+        _invalidate_category_cache()
 
     def get_queryset(self):
         qs = Category.objects.prefetch_related(
@@ -178,8 +200,14 @@ class CategoryViewSet(viewsets.ModelViewSet):
         Optimized: uses 2 queries total (categories + attribute counts),
         builds the tree in Python — avoids the N+1 storm of the recursive
         serializer (~150 queries for a 50-node tree).
+        Result is cached in Redis for 5 minutes.
         """
+        from django.core.cache import cache
         from django.db.models import Count
+
+        cached = cache.get(_CAT_TREE_KEY)
+        if cached is not None:
+            return Response(cached)
 
         # Single query for ALL categories
         cats = list(
@@ -228,7 +256,9 @@ class CategoryViewSet(viewsets.ModelViewSet):
             c['children'] = kids
             c['children_count'] = len(kids)
 
-        return Response(children_map.get(None, []))
+        result = children_map.get(None, [])
+        cache.set(_CAT_TREE_KEY, result, _CAT_CACHE_TTL)
+        return Response(result)
 
     # ── Flat list (for dropdowns) ─────────────────────────────────
     @action(detail=False, methods=['get'], url_path='flat')
@@ -240,7 +270,15 @@ class CategoryViewSet(viewsets.ModelViewSet):
         those would explode into thousands of queries and time out. Instead
         we load every category once, build paths from an in-memory map, and
         compute ``has_children`` from a single distinct-parent query.
+        Result is cached in Redis for 5 minutes to avoid the 518 KB payload
+        being regenerated on every page load.
         """
+        from django.core.cache import cache
+
+        cached = cache.get(_CAT_FLAT_KEY)
+        if cached is not None:
+            return Response(cached)
+
         cats = list(Category.objects.all().values(
             'id', 'code', 'name_ar', 'name_en', 'level',
             'parent_id', 'sort_order', 'is_active',
@@ -299,6 +337,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
             })
         # Match the previous ordering: level, sort_order, name_ar
         out.sort(key=lambda r: (r['level'], r['sort_order'] or 0, r['name_ar'] or ''))
+        cache.set(_CAT_FLAT_KEY, out, _CAT_CACHE_TTL)
         return Response(out)
 
     # ── Attributes ────────────────────────────────────────────────

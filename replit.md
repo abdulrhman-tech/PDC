@@ -121,6 +121,14 @@ data_center/
 - **Reset button**: Hidden at bottom of catalog page ("إعادة عرض الترحيب") — clears localStorage and reloads
 - **Brand colors**: Navy #1B3D4F, Navy Dark #0F2530, Teal-light #2A5A75, Warm Beige #F5F1EA
 
+## Performance Architecture (100k+ products)
+- **Analytics (`/analytics/completeness/live/`)**: Filter counts use DB `GROUP BY` aggregation (never loads 100k rows into Python for counts). Scoring uses `.only()` + `select_related('category')`. Image lookup uses `product_id__in` (indexed FK) chunked in 10k batches. `_score_product` / `_missing_fields` use `product.id` (not sku). Result: 3 DB aggregation queries + 1 `.only()` load + chunked image lookup.
+- **`categories/flat/` and `categories/tree/`**: Cached in Redis (production) / LocMemCache (development) for 5 minutes. Cache key `categories:flat:v2` / `categories:tree:v2` is invalidated immediately on any `perform_create/update/destroy`. Avoids generating the 518 KB flat payload on every page load.
+- **DB indexes**: Composite index `(product_id, image_type, status)` on `images_productimage` (migration `0006`). GIN trigram indexes on `product_name_ar`, `product_name_en`, `sku` via `pg_trgm` extension (migration `products/0007`) for fast `ILIKE %term%` search.
+- **Neon connections**: `conn_max_age=60` (short keep-alive for serverless), `conn_health_checks=True` (discard stale connections), `statement_timeout=30s` per query (prevents runaway queries blocking a worker).
+- **Development cache**: `settings/development.py` overrides CACHES to `LocMemCache` — Upstash Redis is production-only.
+- **Gunicorn (production)**: 4 workers, `--max-requests 1000 --max-requests-jitter 50` to recycle workers and prevent memory leaks.
+
 ## Notes
 - `rembg` is optional — not in requirements.txt. Uses Remove.bg API as fallback.
 - `apps.catalog_gen` module referenced in original code but not yet implemented — removed from INSTALLED_APPS and URLs.

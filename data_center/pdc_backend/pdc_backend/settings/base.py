@@ -92,10 +92,14 @@ if _DATABASE_URL:
     DATABASES = {
         'default': _dj_db_url.parse(
             _DATABASE_URL,
-            conn_max_age=600,
+            conn_max_age=60,         # shorter keep-alive for Neon serverless
             ssl_require=True,
+            conn_health_checks=True, # discard stale connections before use
         )
     }
+    # Set a query timeout of 30 s so a runaway analytics query never blocks a worker
+    DATABASES['default'].setdefault('OPTIONS', {})
+    DATABASES['default']['OPTIONS']['options'] = '-c statement_timeout=30000'
 else:
     DATABASES = {
         'default': {
@@ -105,6 +109,8 @@ else:
             'PASSWORD': config('DB_PASSWORD', default='pdc_password'),
             'HOST': config('DB_HOST', default='localhost'),
             'PORT': config('DB_PORT', default='5432'),
+            'CONN_MAX_AGE': 60,
+            'CONN_HEALTH_CHECKS': True,
         }
     }
 

@@ -22,9 +22,18 @@ SCORE_FIELDS = {
 }
 MAX_SCORE = sum(f['points'] for f in SCORE_FIELDS.values())  # 100
 
+_CHUNK = 10_000   # max IDs per IN-clause to stay within DB limits
 
-def _score_product(p, approved_main_skus: set, approved_lifestyle_skus: set) -> int:
-    """Calculate completeness score 0–100 for a single product."""
+
+def _chunked(lst, size=_CHUNK):
+    for i in range(0, len(lst), size):
+        yield lst[i:i + size]
+
+
+def _score_product(p, main_ids: set, lifestyle_ids: set) -> int:
+    """Calculate completeness score 0–100 for a single product.
+    Uses product.id (not sku) for image membership checks.
+    """
     score = 0
     if p.product_name_en and p.product_name_en.strip():
         score += 10
@@ -42,9 +51,9 @@ def _score_product(p, approved_main_skus: set, approved_lifestyle_skus: set) -> 
         score += 5
     if p.attributes and isinstance(p.attributes, dict) and len(p.attributes) > 0:
         score += 15
-    if p.sku in approved_main_skus:
+    if p.id in main_ids:
         score += 15
-    if p.sku in approved_lifestyle_skus:
+    if p.id in lifestyle_ids:
         score += 5
     return score
 
@@ -65,50 +74,107 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
         """
         Compute a live completeness report directly from Product data.
         Supports filters: category_id, brand_id, score_range, inventory_type
+
+        Performance notes (100k+ products):
+        - Filter counts use DB aggregation (no Python loops over all rows).
+        - Scoring queryset uses .only() to load minimal columns.
+        - Image lookup uses product.id (indexed FK), chunked in 10k batches.
         """
         from apps.products.models import Product
         from apps.images.models import ProductImage
         from apps.categories.models import Category
         from apps.products.models import Brand
 
-        # Access control
         user = request.user
         if not user.can_view_reports():
             return Response({'detail': 'غير مسموح بعرض التقارير'}, status=403)
 
-        # ── Detect dept manager restriction ──
         is_dept_manager = (user.role == 'مدير_قسم')
         managed_ids = user.get_managed_category_ids() if is_dept_manager else set()
 
-        # ── Read filters ──
-        # Dept managers may still narrow within their assigned scope, but any
-        # explicit category_id they pass is intersected with their allowed set.
         requested_cat = request.query_params.get('category_id')
         if is_dept_manager:
-            if requested_cat and int(requested_cat) in managed_ids:
-                category_id = requested_cat
-            else:
-                category_id = None  # use full managed scope
+            category_id = requested_cat if (requested_cat and int(requested_cat) in managed_ids) else None
         else:
             category_id = requested_cat
 
         brand_id       = request.query_params.get('brand_id')
-        score_range    = request.query_params.get('score_range')    # low/medium/high/perfect
-        inventory_type = request.query_params.get('inventory_type') # دوري / ستوك
-        status_filter  = request.query_params.get('status')         # نشط / مسودة (omit = all)
+        score_range    = request.query_params.get('score_range')
+        inventory_type = request.query_params.get('inventory_type')
+        status_filter  = request.query_params.get('status')
 
-        # ── Base queryset: ALL products (active + draft) ──
-        # Historically this was hard-restricted to status='نشط'. In
-        # practice almost every product imported from SAP / Excel sits
-        # as 'مسودة' (Draft), so the old filter hid > 99% of the
-        # catalogue from the dashboard and made the KPIs meaningless.
-        # The status pill in the Reports UI lets users drill into a
-        # specific status when they need to.
-        qs = Product.objects.all().select_related('category', 'brand')
-
+        # ── Base queryset ──────────────────────────────────────────────────
+        base_qs = Product.objects.all()
         if is_dept_manager:
-            qs = qs.filter(category_id__in=managed_ids) if managed_ids else qs.none()
+            base_qs = base_qs.filter(category_id__in=managed_ids) if managed_ids else base_qs.none()
 
+        # ── Filter counts via DB aggregation (no Python loops) ────────────
+        # Each is a single fast GROUP-BY query, never loads Product rows.
+        inv_counts = dict(
+            base_qs.values('inventory_type')
+            .annotate(c=Count('id'))
+            .values_list('inventory_type', 'c')
+        )
+        status_counts = dict(
+            base_qs.values('status')
+            .annotate(c=Count('id'))
+            .values_list('status', 'c')
+        )
+
+        brand_agg = (
+            base_qs.filter(brand__isnull=False)
+            .values('brand_id', 'brand__name_ar', 'brand__name')
+            .annotate(c=Count('id'))
+        )
+        filter_brands = sorted([
+            {
+                'id': r['brand_id'],
+                'name_ar': r['brand__name_ar'] or r['brand__name'],
+                'count': r['c'],
+            }
+            for r in brand_agg
+        ], key=lambda x: -x['count'])
+
+        filter_categories = []
+        if not is_dept_manager:
+            cat_agg = (
+                base_qs.filter(category__isnull=False)
+                .values('category_id')
+                .annotate(c=Count('id'))
+            )
+            cat_count_map = {r['category_id']: r['c'] for r in cat_agg}
+            for cat in Category.objects.filter(pk__in=cat_count_map).order_by('name_ar'):
+                filter_categories.append({
+                    'id': cat.id,
+                    'name_ar': cat.name_ar,
+                    'count': cat_count_map[cat.id],
+                })
+
+        filter_inventory = [{'value': k, 'label': k, 'count': v} for k, v in inv_counts.items()]
+        filter_statuses = sorted(
+            [{'value': k, 'label': k, 'count': v} for k, v in status_counts.items()],
+            key=lambda x: -x['count'],
+        )
+
+        _empty_response = {
+            'total_products': 0,
+            'overall_score': 0,
+            'complete_products': 0,
+            'category_breakdown': [],
+            'score_distribution': [],
+            'field_gaps': [],
+            'worst_products': [],
+            'top_products': [],
+            'filter_options': {
+                'categories': filter_categories,
+                'brands': filter_brands,
+                'inventory_types': filter_inventory,
+                'statuses': filter_statuses,
+            },
+        }
+
+        # ── Apply user filters for scoring queryset ────────────────────────
+        qs = base_qs
         if category_id:
             qs = qs.filter(category_id=category_id)
         if brand_id:
@@ -118,134 +184,63 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
         if status_filter:
             qs = qs.filter(status=status_filter)
 
-        # ── Filter options (scoped by dept for managers) ──
-        # Compute from the same base scope (no status filter), so the
-        # status pills always show all available options with their
-        # real counts. Brand/inv/category counts likewise reflect the
-        # full catalogue — not a status-restricted slice.
-        if is_dept_manager:
-            all_scope = Product.objects.filter(
-                category_id__in=managed_ids
-            ).select_related('category', 'brand') if managed_ids else Product.objects.none()
-        else:
-            all_scope = Product.objects.all().select_related('category', 'brand')
-
-        filter_categories = []
-        if not is_dept_manager:
-            cat_counts: dict[int, int] = {}
-            for p in all_scope:
-                if p.category_id:
-                    cat_counts[p.category_id] = cat_counts.get(p.category_id, 0) + 1
-            for cat in Category.objects.filter(pk__in=cat_counts.keys()).order_by('name_ar'):
-                filter_categories.append({'id': cat.id, 'name_ar': cat.name_ar, 'count': cat_counts[cat.id]})
-
-        brand_counts: dict[int, int] = {}
-        brand_names: dict[int, str] = {}
-        for p in all_scope:
-            if p.brand_id:
-                brand_counts[p.brand_id] = brand_counts.get(p.brand_id, 0) + 1
-                brand_names[p.brand_id] = p.brand.name_ar or p.brand.name
-        filter_brands = sorted([
-            {'id': bid, 'name_ar': brand_names[bid], 'count': cnt}
-            for bid, cnt in brand_counts.items()
-        ], key=lambda x: -x['count'])
-
-        inv_counts: dict[str, int] = {}
-        for p in all_scope:
-            inv_counts[p.inventory_type] = inv_counts.get(p.inventory_type, 0) + 1
-        filter_inventory = [{'value': k, 'label': k, 'count': v} for k, v in inv_counts.items()]
-
-        status_counts: dict[str, int] = {}
-        for p in all_scope:
-            status_counts[p.status] = status_counts.get(p.status, 0) + 1
-        filter_statuses = sorted(
-            [{'value': k, 'label': k, 'count': v} for k, v in status_counts.items()],
-            key=lambda x: -x['count'],
+        # ── Load products with only the columns we need ────────────────────
+        # .only() avoids fetching large unused columns (description, attributes…)
+        # select_related('category') adds a single JOIN for category.name_ar.
+        products = list(
+            qs.select_related('category')
+            .only(
+                'id', 'sku', 'product_name_ar', 'product_name_en',
+                'category_id', 'category__name_ar',
+                'brand_id', 'origin_country', 'color',
+                'price_sar', 'ecommerce_url', 'attributes',
+                'inventory_type', 'status',
+            )
         )
 
-        # ── Load filtered products ──
-        products = list(qs)
-        total = len(products)
+        if not products:
+            return Response(_empty_response)
 
-        if total == 0:
-            return Response({
-                'total_products': 0,
-                'overall_score': 0,
-                'complete_products': 0,
-                'category_breakdown': [],
-                'score_distribution': [],
-                'field_gaps': [],
-                'worst_products': [],
-                'top_products': [],
-                'filter_options': {
-                    'categories': filter_categories,
-                    'brands': filter_brands,
-                    'inventory_types': filter_inventory,
-                    'statuses': filter_statuses,
-                },
-            })
+        # ── Image lookup by product.id (chunked to stay under DB limit) ───
+        product_ids = [p.id for p in products]
+        main_ids: set[int] = set()
+        lifestyle_ids: set[int] = set()
+        for chunk in _chunked(product_ids):
+            main_ids |= set(
+                ProductImage.objects.filter(
+                    product_id__in=chunk, image_type='main', status='approved'
+                ).values_list('product_id', flat=True)
+            )
+            lifestyle_ids |= set(
+                ProductImage.objects.filter(
+                    product_id__in=chunk, image_type='lifestyle', status='approved'
+                ).values_list('product_id', flat=True)
+            )
 
-        skus = [p.sku for p in products]
-
-        # Pre-fetch image data (avoid N+1)
-        main_skus = set(
-            ProductImage.objects.filter(
-                product__sku__in=skus, image_type='main', status='approved'
-            ).values_list('product__sku', flat=True)
-        )
-        lifestyle_skus = set(
-            ProductImage.objects.filter(
-                product__sku__in=skus, image_type='lifestyle', status='approved'
-            ).values_list('product__sku', flat=True)
-        )
-
-        # Score every product
+        # ── Score every product ────────────────────────────────────────────
         scored = []
         for p in products:
-            s = _score_product(p, main_skus, lifestyle_skus)
+            s = _score_product(p, main_ids, lifestyle_ids)
             scored.append({
                 'id': p.id,
                 'sku': p.sku,
                 'name_ar': p.product_name_ar,
                 'category': p.category.name_ar if p.category else '—',
                 'score': s,
-                'missing': _missing_fields(p, main_skus, lifestyle_skus),
+                'missing': _missing_fields(p, main_ids, lifestyle_ids),
             })
 
-        # Apply score_range filter
-        score_range_map = {
-            'low':     (0, 50),
-            'medium':  (51, 79),
-            'high':    (80, 99),
-            'perfect': (100, 100),
-        }
-        if score_range and score_range in score_range_map:
-            lo, hi = score_range_map[score_range]
+        if score_range and score_range in {'low', 'medium', 'high', 'perfect'}:
+            lo, hi = {'low': (0, 50), 'medium': (51, 79), 'high': (80, 99), 'perfect': (100, 100)}[score_range]
             scored = [x for x in scored if lo <= x['score'] <= hi]
 
         total = len(scored)
         if total == 0:
-            return Response({
-                'total_products': 0,
-                'overall_score': 0,
-                'complete_products': 0,
-                'category_breakdown': [],
-                'score_distribution': [],
-                'field_gaps': [],
-                'worst_products': [],
-                'top_products': [],
-                'filter_options': {
-                    'categories': filter_categories,
-                    'brands': filter_brands,
-                    'inventory_types': filter_inventory,
-                    'statuses': filter_statuses,
-                },
-            })
+            return Response(_empty_response)
 
         overall_score = round(sum(x['score'] for x in scored) / total, 1)
         complete_products = sum(1 for x in scored if x['score'] >= 80)
 
-        # ── Score distribution ──
         dist = [
             {'range': '0–25%',  'min': 0,  'max': 25, 'count': 0, 'color': '#EF4444'},
             {'range': '26–50%', 'min': 26, 'max': 50, 'count': 0, 'color': '#F97316'},
@@ -258,21 +253,19 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
                     bucket['count'] += 1
                     break
 
-        # ── Category breakdown ──
         cat_map: dict[str, list[int]] = {}
         for x in scored:
             cat_map.setdefault(x['category'], []).append(x['score'])
         category_breakdown = sorted([
             {
                 'category': cat,
-                'avg_score': round(sum(scores) / len(scores), 1),
-                'count': len(scores),
-                'color': _score_color(round(sum(scores) / len(scores), 1)),
+                'avg_score': round(sum(sc) / len(sc), 1),
+                'count': len(sc),
+                'color': _score_color(round(sum(sc) / len(sc), 1)),
             }
-            for cat, scores in cat_map.items()
+            for cat, sc in cat_map.items()
         ], key=lambda x: x['avg_score'])
 
-        # ── Field gaps ──
         field_missing: dict[str, int] = {k: 0 for k in SCORE_FIELDS}
         for x in scored:
             for f in x['missing']:
@@ -289,7 +282,6 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
             if field_missing.get(key, 0) > 0
         ], key=lambda x: -x['missing_count'])
 
-        # ── Worst & Top products ──
         sorted_by_score = sorted(scored, key=lambda x: x['score'])
         worst_products = sorted_by_score[:15]
         top_products = sorted_by_score[-10:][::-1]
@@ -319,12 +311,12 @@ class CompletenessReportViewSet(viewsets.ReadOnlyModelViewSet):
                 'categories': filter_categories,
                 'brands': filter_brands,
                 'inventory_types': filter_inventory,
-                    'statuses': filter_statuses,
+                'statuses': filter_statuses,
             },
         })
 
 
-def _missing_fields(p, main_skus: set, lifestyle_skus: set) -> list[str]:
+def _missing_fields(p, main_ids: set, lifestyle_ids: set) -> list[str]:
     missing = []
     if not (p.product_name_en and p.product_name_en.strip()):
         missing.append('product_name_en')
@@ -342,9 +334,9 @@ def _missing_fields(p, main_skus: set, lifestyle_skus: set) -> list[str]:
         missing.append('ecommerce_url')
     if not (p.attributes and isinstance(p.attributes, dict) and len(p.attributes) > 0):
         missing.append('attributes')
-    if p.sku not in main_skus:
+    if p.id not in main_ids:
         missing.append('main_image')
-    if p.sku not in lifestyle_skus:
+    if p.id not in lifestyle_ids:
         missing.append('lifestyle_image')
     return missing
 
