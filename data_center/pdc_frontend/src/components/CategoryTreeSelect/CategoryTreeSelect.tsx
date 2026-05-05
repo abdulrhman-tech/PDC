@@ -32,7 +32,7 @@ export function CategoryTreeSelect({ value, onChange, placeholder = 'اختر ا
     const { data: cats = [] } = useQuery<CategoryFlat[]>({
         queryKey: ['categories-flat'],
         queryFn: () => categoriesAPI.flat().then(r => r.data),
-        staleTime: 60_000,
+        staleTime: 5 * 60_000,
     })
 
     // Smart bilingual labels: some categories have name_ar/name_en swapped

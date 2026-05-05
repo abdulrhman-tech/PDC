@@ -69,7 +69,7 @@ export default function ProductFormPage() {
     const { data: categoriesFlat = [] } = useQuery({
         queryKey: ['categories-flat'],
         queryFn: () => categoriesAPI.flat().then(r => r.data),
-        staleTime: 60_000,
+        staleTime: 5 * 60_000,
     })
 
     // Load lookup values (countries + colors)

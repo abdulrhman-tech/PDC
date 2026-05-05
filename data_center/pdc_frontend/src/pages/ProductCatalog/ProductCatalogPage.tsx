@@ -2,7 +2,7 @@
  * Product Catalog Page — Inspiration Gallery
  * Dark full-width masonry layout + collapsible filter panel
  */
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, memo } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -77,6 +77,142 @@ function SkeletonCard({ ratio }: { ratio: string }) {
     )
 }
 
+/* ─── Product card (memoized) ───────────────────────────────────────────────
+ *  Extracted so that hover-state changes are LOCAL to each card.
+ *  Without this, every onMouseEnter on any card caused all N cards to
+ *  re-render because hoveredId in the parent changed.
+ *  Also removes backdropFilter:blur (massive paint cost with 72+ cards).
+ * ────────────────────────────────────────────────────────────────────────── */
+const ProductCard = memo(function ProductCard({
+    product, idx, isAr, screenWidth, navigate, nameField,
+}: {
+    product: Product
+    idx: number
+    isAr: boolean
+    screenWidth: number
+    navigate: (path: string) => void
+    nameField: (p: { product_name_ar: string; product_name_en?: string }) => string
+}) {
+    const [isHovered, setIsHovered] = useState(false)
+    const ratio = RATIOS[idx % RATIOS.length]
+    const catSlug = product.category_name?.toLowerCase().replace(/\s+/g, '') ?? ''
+    const bgColor = CAT_COLORS[catSlug] ?? FALLBACK_COLORS[idx % FALLBACK_COLORS.length]
+    const isMobileView = screenWidth <= 640
+    const showOverlay = isMobileView || isHovered
+
+    return (
+        <div
+            style={{
+                breakInside: 'avoid',
+                marginBottom: 4,
+                cursor: 'pointer',
+                contain: 'layout style paint',
+            }}
+            onClick={() => navigate(`/products/${product.id}`)}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            <div style={{
+                position: 'relative',
+                paddingBottom: ratio,
+                overflow: 'hidden',
+                background: bgColor,
+                transform: 'translateZ(0)',
+            }}>
+                {product.main_image_url ? (
+                    <img
+                        src={product.main_image_url}
+                        alt={product.product_name_ar}
+                        loading="lazy"
+                        decoding="async"
+                        style={{
+                            position: 'absolute', inset: 0,
+                            width: '100%', height: '100%',
+                            objectFit: 'cover',
+                            transform: isHovered ? 'scale(1.06)' : 'scale(1)',
+                            transition: 'transform 0.55s cubic-bezier(0.25,0.46,0.45,0.94)',
+                            willChange: isHovered ? 'transform' : 'auto',
+                        }}
+                    />
+                ) : (
+                    <div style={{
+                        position: 'absolute', inset: 0,
+                        background: bgColor,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '20px 16px',
+                    }}>
+                        <span style={{
+                            fontSize: 15, fontWeight: 600,
+                            color: 'rgba(255,255,255,0.65)',
+                            textAlign: 'center', lineHeight: 1.6,
+                        }}>
+                            {nameField(product)}
+                        </span>
+                    </div>
+                )}
+
+                {/* Category badge — solid bg, NO backdropFilter (eliminates per-card blur cost) */}
+                <div style={{
+                    position: 'absolute', top: 10, right: 10, zIndex: 2,
+                    background: 'rgba(30, 80, 160, 0.88)',
+                    padding: '3px 10px',
+                    borderRadius: 20,
+                    fontSize: 11, color: '#fff',
+                    fontWeight: 500, letterSpacing: 0.2,
+                    pointerEvents: 'none',
+                }}>
+                    {product.category_name}
+                </div>
+
+                {/* Hover / mobile overlay */}
+                <div style={{
+                    position: 'absolute', inset: 0, zIndex: 3,
+                    background: isMobileView
+                        ? 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.15) 50%, transparent 70%)'
+                        : 'linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.35) 45%, transparent 72%)',
+                    opacity: showOverlay ? 1 : 0,
+                    transition: 'opacity 0.3s ease',
+                    display: 'flex', flexDirection: 'column',
+                    justifyContent: 'flex-end',
+                    padding: isMobileView ? '10px 10px' : '18px 14px',
+                    pointerEvents: showOverlay ? 'auto' : 'none',
+                }}>
+                    <div style={{
+                        fontSize: isMobileView ? 13 : 15, fontWeight: 600, color: '#fff',
+                        lineHeight: 1.45, marginBottom: 2,
+                        transform: showOverlay ? 'translateY(0)' : 'translateY(8px)',
+                        transition: 'transform 0.35s ease',
+                    }}>
+                        {nameField(product)}
+                    </div>
+                    <div style={{
+                        fontSize: isMobileView ? 10 : 11, color: 'rgba(255,255,255,0.5)',
+                        marginBottom: isMobileView ? 0 : 10, letterSpacing: 1,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        transform: showOverlay ? 'translateY(0)' : 'translateY(8px)',
+                        transition: 'transform 0.35s ease 0.04s',
+                    }}>
+                        {product.sku}
+                    </div>
+                    {!isMobileView && (
+                        <div style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            fontSize: 13, color: '#C8A84B', fontWeight: 600,
+                            transform: isHovered ? 'translateY(0)' : 'translateY(8px)',
+                            transition: 'transform 0.35s ease 0.08s',
+                        }}>
+                            {isAr ? 'عرض المنتج' : 'View Product'}
+                            <span style={{ display: 'inline-block', transform: isAr ? 'scaleX(-1)' : '' }}>→</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+})
+
 /* ─── View column icon ─── */
 function ViewColIcon({ cols, size = 14 }: { cols: number; size?: number }) {
     const gap = 1.5
@@ -147,7 +283,6 @@ export default function ProductCatalogPage() {
     const [filters, setFilters] = useState<ProductFilters>({ page_size: 24 })
     const [search, setSearch] = useState('')
     const [searchFocused, setSearchFocused] = useState(false)
-    const [hoveredId, setHoveredId] = useState<number | null>(null)
     const [hoverCatId, setHoverCatId] = useState<number | null>(null)
     const [dropdownRect, setDropdownRect] = useState<{ top: number; right: number } | null>(null)
     const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -240,7 +375,8 @@ export default function ProductCatalogPage() {
     const { data: categoriesData } = useQuery({
         queryKey: ['categories-flat'],
         queryFn: () => categoriesAPI.flat().then(r => r.data),
-        staleTime: 60_000,
+        staleTime: 5 * 60_000,
+        gcTime: 10 * 60_000,
     })
 
     const { data: brandsData } = useQuery({
@@ -1086,131 +1222,17 @@ export default function ProductCatalogPage() {
 
                 ) : (
                     <div style={{ columns: `${effectiveCols} ${colMinWidth}`, columnGap: 4 }}>
-                        {products.map((product, idx) => {
-                            const isHovered = hoveredId === product.id
-                            const ratio = RATIOS[idx % RATIOS.length]
-                            const catSlug = product.category_name?.toLowerCase().replace(/\s+/g, '') ?? ''
-                            const bgColor = CAT_COLORS[catSlug] ?? FALLBACK_COLORS[idx % FALLBACK_COLORS.length]
-
-                            return (
-                                <div
-                                    key={product.id}
-                                    style={{
-                                        breakInside: 'avoid',
-                                        marginBottom: 4,
-                                        position: 'relative',
-                                        cursor: 'pointer',
-                                    }}
-                                    onClick={() => navigate(`/products/${product.id}`)}
-                                    onMouseEnter={() => setHoveredId(product.id)}
-                                    onMouseLeave={() => setHoveredId(null)}
-                                >
-                                    {/* ── Image wrapper ── */}
-                                    <div style={{
-                                        position: 'relative',
-                                        paddingBottom: ratio,
-                                        overflow: 'hidden',
-                                        background: bgColor,
-                                    }}>
-
-                                        {product.main_image_url ? (
-                                            <img
-                                                src={product.main_image_url}
-                                                alt={product.product_name_ar}
-                                                loading="lazy"
-                                                style={{
-                                                    position: 'absolute', inset: 0,
-                                                    width: '100%', height: '100%',
-                                                    objectFit: 'cover',
-                                                    transform: isHovered ? 'scale(1.06)' : 'scale(1)',
-                                                    transition: 'transform 0.55s cubic-bezier(0.25,0.46,0.45,0.94)',
-                                                }}
-                                            />
-                                        ) : (
-                                            <div style={{
-                                                position: 'absolute', inset: 0,
-                                                background: bgColor,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                padding: '20px 16px',
-                                            }}>
-                                                <span style={{
-                                                    fontSize: 15, fontWeight: 600,
-                                                    color: 'rgba(255,255,255,0.65)',
-                                                    textAlign: 'center', lineHeight: 1.6,
-                                                }}>
-                                                    {nameField(product)}
-                                                </span>
-                                            </div>
-                                        )}
-
-                                        {/* Category badge */}
-                                        <div style={{
-                                            position: 'absolute', top: 10, right: 10, zIndex: 2,
-                                            background: 'rgba(44, 110, 180, 0.82)',
-                                            backdropFilter: 'blur(6px)',
-                                            padding: '3px 10px',
-                                            borderRadius: 20,
-                                            fontSize: 11, color: '#fff',
-                                            fontWeight: 500, letterSpacing: 0.2,
-                                            pointerEvents: 'none',
-                                        }}>
-                                            {product.category_name}
-                                        </div>
-
-                                        {/* Hover / mobile overlay */}
-                                        {(() => {
-                                            const isMobileView = screenWidth <= 640
-                                            const showOverlay = isMobileView || isHovered
-                                            return (
-                                                <div style={{
-                                                    position: 'absolute', inset: 0, zIndex: 3,
-                                                    background: isMobileView
-                                                        ? 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.15) 50%, transparent 70%)'
-                                                        : 'linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.35) 45%, transparent 72%)',
-                                                    opacity: showOverlay ? 1 : 0,
-                                                    transition: 'opacity 0.3s ease',
-                                                    display: 'flex', flexDirection: 'column',
-                                                    justifyContent: 'flex-end',
-                                                    padding: isMobileView ? '10px 10px' : '18px 14px',
-                                                    pointerEvents: showOverlay ? 'auto' : 'none',
-                                                }}>
-                                                    <div style={{
-                                                        fontSize: isMobileView ? 13 : 15, fontWeight: 600, color: '#fff',
-                                                        lineHeight: 1.45, marginBottom: 2,
-                                                        transform: showOverlay ? 'translateY(0)' : 'translateY(8px)',
-                                                        transition: 'transform 0.35s ease',
-                                                    }}>
-                                                        {nameField(product)}
-                                                    </div>
-                                                    <div style={{
-                                                        fontSize: isMobileView ? 10 : 11, color: 'rgba(255,255,255,0.5)',
-                                                        marginBottom: isMobileView ? 0 : 10, letterSpacing: 1,
-                                                        fontFamily: "'JetBrains Mono', monospace",
-                                                        transform: showOverlay ? 'translateY(0)' : 'translateY(8px)',
-                                                        transition: 'transform 0.35s ease 0.04s',
-                                                    }}>
-                                                        {product.sku}
-                                                    </div>
-                                                    {!isMobileView && (
-                                                        <div style={{
-                                                            display: 'inline-flex', alignItems: 'center', gap: 6,
-                                                            fontSize: 13, color: '#C8A84B', fontWeight: 600,
-                                                            transform: isHovered ? 'translateY(0)' : 'translateY(8px)',
-                                                            transition: 'transform 0.35s ease 0.08s',
-                                                        }}>
-                                                            {t('products.view')}
-                                                            <span style={{ display: 'inline-block', transform: isAr ? 'scaleX(-1)' : '' }}>→</span>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )
-                                        })()}
-                                    </div>
-                                </div>
-                            )
-                        })}
+                        {products.map((product, idx) => (
+                            <ProductCard
+                                key={product.id}
+                                product={product}
+                                idx={idx}
+                                isAr={isAr}
+                                screenWidth={screenWidth}
+                                navigate={navigate}
+                                nameField={nameField}
+                            />
+                        ))}
                     </div>
                 )}
             </div>
