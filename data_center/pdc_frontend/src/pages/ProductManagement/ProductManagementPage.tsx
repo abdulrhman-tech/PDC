@@ -328,6 +328,7 @@ function ExportModal({ onClose, categories }: { onClose: () => void; categories:
     const [exportCat, setExportCat] = useState('')
     const [exportStatus, setExportStatus] = useState('')
     const [exportStock, setExportStock] = useState('')
+    const [exportImages, setExportImages] = useState('')   // '' | 'false' | 'true'
     const [exporting, setExporting] = useState(false)
 
     const selStyle: React.CSSProperties = {
@@ -344,6 +345,7 @@ function ExportModal({ onClose, categories }: { onClose: () => void; categories:
             if (exportCat) params.category = exportCat
             if (exportStatus) params.status = exportStatus
             if (exportStock) params.inventory_type = exportStock
+            if (exportImages !== '') params.has_images = exportImages
             const res = await productsAPI.list(params)
             const products: Product[] = res.data.results || res.data || []
 
@@ -424,6 +426,14 @@ function ExportModal({ onClose, categories }: { onClose: () => void; categories:
                         <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6, display: 'block' }}>نوع المخزون</label>
                         <select style={selStyle} value={exportStock} onChange={e => setExportStock(e.target.value)}>
                             {STOCK_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6, display: 'block' }}>الصور</label>
+                        <select style={selStyle} value={exportImages} onChange={e => setExportImages(e.target.value)}>
+                            <option value="">كل المنتجات</option>
+                            <option value="false">بدون صور فقط</option>
+                            <option value="true">لديها صور فقط</option>
                         </select>
                     </div>
                 </div>
