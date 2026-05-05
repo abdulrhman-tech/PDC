@@ -8,7 +8,7 @@ import {
     RadialBarChart, RadialBar, PolarAngleAxis,
 } from 'recharts'
 import { analyticsAPI } from '@/api/client'
-import { BarChart2, RefreshCw, TrendingUp, AlertTriangle, CheckCircle2, Package, Target } from 'lucide-react'
+import { BarChart2, RefreshCw, TrendingUp, AlertTriangle, CheckCircle2, Package, Target, Search, ChevronDown } from 'lucide-react'
 
 /* ── Types ─────────────────────────────────────────────────────────────────── */
 interface FilterOption { id: number; name_ar: string; count: number }
@@ -98,6 +98,8 @@ export default function ReportsPage() {
         status: null,
     })
     const [showFilters, setShowFilters] = useState(false)
+    const [catSearch, setCatSearch] = useState('')
+    const [catVisible, setCatVisible] = useState(10)
 
     const activeFilterCount = Object.values(filters).filter(Boolean).length
 
@@ -480,71 +482,170 @@ export default function ReportsPage() {
                     </div>
 
                     {/* ── Category breakdown ── */}
-                    {r.category_breakdown.length > 0 && (
-                        <div style={{
-                            background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-                            borderRadius: 14, padding: '24px', marginBottom: 24,
-                        }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 24 }}>اكتمال البيانات حسب القسم</div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                                {[...r.category_breakdown].sort((a, b) => b.avg_score - a.avg_score).map(c => (
-                                    <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 14, direction: 'rtl' }}>
-                                        {/* Category name */}
-                                        <div style={{
-                                            width: 160, flexShrink: 0, fontSize: 13, fontWeight: 600,
-                                            color: 'var(--color-text-primary)', textAlign: 'right',
-                                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                        }}>
-                                            {c.category}
-                                        </div>
-                                        {/* Bar track */}
-                                        <div style={{
-                                            flex: 1, height: 34, background: 'var(--color-surface-hover)',
-                                            borderRadius: 8, overflow: 'hidden', position: 'relative',
-                                        }}>
-                                            <div style={{
-                                                height: '100%', borderRadius: 8,
-                                                background: `linear-gradient(90deg, ${c.color}99, ${c.color})`,
-                                                width: `${c.avg_score}%`,
-                                                transition: 'width 0.9s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                                                display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-                                                paddingLeft: 10,
-                                            }}>
-                                                {c.avg_score >= 20 && (
-                                                    <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--color-text-primary)', direction: 'ltr', paddingLeft: 6 }}>
-                                                        {c.avg_score}%
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {c.avg_score < 20 && (
-                                                <span style={{
-                                                    position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                                                    fontSize: 12, fontWeight: 800, color: 'var(--color-text-secondary)',
-                                                }}>
-                                                    {c.avg_score}%
-                                                </span>
-                                            )}
-                                        </div>
-                                        {/* Count badge */}
-                                        <div style={{
-                                            width: 56, flexShrink: 0, textAlign: 'center',
-                                            padding: '3px 8px', borderRadius: 20,
-                                            background: `${c.color}18`, border: `1px solid ${c.color}44`,
-                                            fontSize: 11, fontWeight: 600, color: c.color,
-                                        }}>
-                                            {c.count} منتج
-                                        </div>
+                    {r.category_breakdown.length > 0 && (() => {
+                        const sorted = [...r.category_breakdown].sort((a, b) => b.avg_score - a.avg_score)
+                        const filtered = catSearch.trim()
+                            ? sorted.filter(c => c.category.includes(catSearch.trim()))
+                            : sorted
+                        const visible = filtered.slice(0, catVisible)
+                        const hasMore = filtered.length > catVisible
+                        return (
+                            <div style={{
+                                background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+                                borderRadius: 14, padding: '24px', marginBottom: 24,
+                            }}>
+                                {/* Header */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, gap: 12, flexWrap: 'wrap' }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                                        اكتمال البيانات حسب القسم
+                                        <span style={{ marginRight: 8, fontSize: 11, fontWeight: 400, color: 'var(--color-text-muted)' }}>
+                                            ({sorted.length} قسم)
+                                        </span>
                                     </div>
-                                ))}
+                                    {/* Search */}
+                                    <div style={{ position: 'relative', minWidth: 200 }}>
+                                        <Search size={13} style={{
+                                            position: 'absolute', right: 10, top: '50%',
+                                            transform: 'translateY(-50%)',
+                                            color: 'var(--color-text-muted)', pointerEvents: 'none',
+                                        }} />
+                                        <input
+                                            value={catSearch}
+                                            onChange={e => { setCatSearch(e.target.value); setCatVisible(10) }}
+                                            placeholder="ابحث عن قسم..."
+                                            style={{
+                                                width: '100%', boxSizing: 'border-box',
+                                                padding: '7px 32px 7px 10px',
+                                                background: 'var(--color-surface-raised)',
+                                                border: '1px solid var(--color-border)',
+                                                borderRadius: 8, color: 'var(--color-text-primary)',
+                                                fontSize: 12, fontFamily: 'inherit', outline: 'none',
+                                                direction: 'rtl',
+                                            }}
+                                            onFocus={e => (e.currentTarget.style.borderColor = 'var(--color-gold)')}
+                                            onBlur={e => (e.currentTarget.style.borderColor = 'var(--color-border)')}
+                                        />
+                                        {catSearch && (
+                                            <button
+                                                onClick={() => { setCatSearch(''); setCatVisible(10) }}
+                                                style={{
+                                                    position: 'absolute', left: 8, top: '50%',
+                                                    transform: 'translateY(-50%)',
+                                                    background: 'none', border: 'none', cursor: 'pointer',
+                                                    color: 'var(--color-text-muted)', fontSize: 14, lineHeight: 1,
+                                                    padding: '0 2px',
+                                                }}
+                                            >×</button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Result count */}
+                                {catSearch.trim() && (
+                                    <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 12 }}>
+                                        {filtered.length} نتيجة من {sorted.length}
+                                    </div>
+                                )}
+
+                                {/* Rows */}
+                                {filtered.length === 0 ? (
+                                    <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--color-text-muted)', fontSize: 13 }}>
+                                        لا توجد نتائج للبحث
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                                        {visible.map(c => (
+                                            <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 14, direction: 'rtl' }}>
+                                                {/* Category name */}
+                                                <div style={{
+                                                    width: 160, flexShrink: 0, fontSize: 13, fontWeight: 600,
+                                                    color: 'var(--color-text-primary)', textAlign: 'right',
+                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                }} title={c.category}>
+                                                    {c.category}
+                                                </div>
+                                                {/* Bar track */}
+                                                <div style={{
+                                                    flex: 1, height: 34, background: 'var(--color-surface-hover)',
+                                                    borderRadius: 8, overflow: 'hidden', position: 'relative',
+                                                }}>
+                                                    <div style={{
+                                                        height: '100%', borderRadius: 8,
+                                                        background: `linear-gradient(90deg, ${c.color}99, ${c.color})`,
+                                                        width: `${c.avg_score}%`,
+                                                        transition: 'width 0.9s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+                                                        paddingLeft: 10,
+                                                    }}>
+                                                        {c.avg_score >= 20 && (
+                                                            <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--color-text-primary)', direction: 'ltr', paddingLeft: 6 }}>
+                                                                {c.avg_score}%
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {c.avg_score < 20 && (
+                                                        <span style={{
+                                                            position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                                                            fontSize: 12, fontWeight: 800, color: 'var(--color-text-secondary)',
+                                                        }}>
+                                                            {c.avg_score}%
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {/* Count badge */}
+                                                <div style={{
+                                                    width: 56, flexShrink: 0, textAlign: 'center',
+                                                    padding: '3px 8px', borderRadius: 20,
+                                                    background: `${c.color}18`, border: `1px solid ${c.color}44`,
+                                                    fontSize: 11, fontWeight: 600, color: c.color,
+                                                }}>
+                                                    {c.count} منتج
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* X-axis labels */}
+                                {filtered.length > 0 && (
+                                    <div style={{ display: 'flex', marginRight: 174, marginLeft: 70, marginTop: 12, justifyContent: 'space-between', direction: 'ltr' }}>
+                                        {[0, 25, 50, 75, 100].map(v => (
+                                            <span key={v} style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{v}%</span>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Show More */}
+                                {hasMore && (
+                                    <button
+                                        onClick={() => setCatVisible(v => v + 10)}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            gap: 6, width: '100%', marginTop: 16,
+                                            padding: '9px 0',
+                                            background: 'var(--color-surface-raised)',
+                                            border: '1px solid var(--color-border)',
+                                            borderRadius: 8, cursor: 'pointer',
+                                            color: 'var(--color-text-secondary)',
+                                            fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                                            transition: 'border-color 0.15s, color 0.15s',
+                                        }}
+                                        onMouseEnter={e => {
+                                            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-gold)'
+                                            ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--color-gold)'
+                                        }}
+                                        onMouseLeave={e => {
+                                            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-border)'
+                                            ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-secondary)'
+                                        }}
+                                    >
+                                        <ChevronDown size={13} />
+                                        عرض المزيد ({filtered.length - catVisible} متبقي)
+                                    </button>
+                                )}
                             </div>
-                            {/* X-axis labels */}
-                            <div style={{ display: 'flex', marginRight: 174, marginLeft: 70, marginTop: 12, justifyContent: 'space-between', direction: 'ltr' }}>
-                                {[0, 25, 50, 75, 100].map(v => (
-                                    <span key={v} style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{v}%</span>
-                                ))}
-                            </div>
-                        </div>
-                    )}
+                        )
+                    })()}
 
                     {/* ── Field gaps + Worst products ── */}
                     <div className="resp-2col" style={{ gridTemplateColumns: '1fr 1fr', marginBottom: 24 }}>
