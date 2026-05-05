@@ -23,8 +23,9 @@ services:
       - key: SECRET_KEY
         sync: false
 
-      # ── Database (Neon PostgreSQL) ───────────────────────────
-      # أضف قيمة NEON_DATABASE_URL في Render dashboard يدوياً
+      # ── Database (Neon PostgreSQL pooler) ───────────────────
+      # NEON_DATABASE_URL يجب ضبطها في Render dashboard يدوياً
+      # القيمة: postgresql://neondb_owner:...@ep-dry-breeze-a1buqqso-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
       - key: NEON_DATABASE_URL
         sync: false
 
