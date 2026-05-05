@@ -97,9 +97,11 @@ if _DATABASE_URL:
             conn_health_checks=True, # discard stale connections before use
         )
     }
-    # Set a query timeout of 30 s so a runaway analytics query never blocks a worker
-    DATABASES['default'].setdefault('OPTIONS', {})
-    DATABASES['default']['OPTIONS']['options'] = '-c statement_timeout=30000'
+    # statement_timeout is NOT supported on Neon pooled connections (PgBouncer).
+    # Only apply it when using the direct (unpooled) endpoint, i.e. URL has no "-pooler".
+    if '-pooler.' not in _DATABASE_URL:
+        DATABASES['default'].setdefault('OPTIONS', {})
+        DATABASES['default']['OPTIONS']['options'] = '-c statement_timeout=30000'
 else:
     DATABASES = {
         'default': {
