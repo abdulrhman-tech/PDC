@@ -117,16 +117,23 @@ else:
     }
 
 # Cache & Celery
-REDIS_URL = config('REDIS_URL', default='redis://localhost:6379/0')
+REDIS_URL = config('REDIS_URL', default='')
 
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': REDIS_URL,
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        }
     }
-}
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        }
+    }
 
-CELERY_BROKER_URL = REDIS_URL
+CELERY_BROKER_URL = REDIS_URL or 'memory://'
 CELERY_RESULT_BACKEND = 'django-db'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'

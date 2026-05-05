@@ -148,7 +148,10 @@ _CAT_CACHE_TTL = 300   # 5 minutes — invalidated immediately on any write
 
 def _invalidate_category_cache():
     from django.core.cache import cache
-    cache.delete_many([_CAT_FLAT_KEY, _CAT_TREE_KEY])
+    try:
+        cache.delete_many([_CAT_FLAT_KEY, _CAT_TREE_KEY])
+    except Exception:
+        pass
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -205,7 +208,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
         from django.core.cache import cache
         from django.db.models import Count
 
-        cached = cache.get(_CAT_TREE_KEY)
+        try:
+            cached = cache.get(_CAT_TREE_KEY)
+        except Exception:
+            cached = None
         if cached is not None:
             return Response(cached)
 
@@ -257,7 +263,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
             c['children_count'] = len(kids)
 
         result = children_map.get(None, [])
-        cache.set(_CAT_TREE_KEY, result, _CAT_CACHE_TTL)
+        try:
+            cache.set(_CAT_TREE_KEY, result, _CAT_CACHE_TTL)
+        except Exception:
+            pass
         return Response(result)
 
     # ── Flat list (for dropdowns) ─────────────────────────────────
@@ -275,7 +284,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
         """
         from django.core.cache import cache
 
-        cached = cache.get(_CAT_FLAT_KEY)
+        try:
+            cached = cache.get(_CAT_FLAT_KEY)
+        except Exception:
+            cached = None
         if cached is not None:
             return Response(cached)
 
@@ -337,7 +349,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
             })
         # Match the previous ordering: level, sort_order, name_ar
         out.sort(key=lambda r: (r['level'], r['sort_order'] or 0, r['name_ar'] or ''))
-        cache.set(_CAT_FLAT_KEY, out, _CAT_CACHE_TTL)
+        try:
+            cache.set(_CAT_FLAT_KEY, out, _CAT_CACHE_TTL)
+        except Exception:
+            pass
         return Response(out)
 
     # ── Attributes ────────────────────────────────────────────────
