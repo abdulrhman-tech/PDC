@@ -153,6 +153,7 @@ export const settingsAPI = {
 
 export const analyticsAPI = {
     completeness: () => api.get('/analytics/completeness/'),
+    dashboard: () => api.get('/analytics/completeness/dashboard/'),
     live: (params?: {
         category_id?: number | null
         brand_id?: number | null

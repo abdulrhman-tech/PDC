@@ -138,8 +138,9 @@ export default function DashboardPage() {
 
     const { data: live, isLoading: liveLoading } = useQuery<LiveReport>({
         queryKey: ['dashboard-live'],
-        queryFn: () => analyticsAPI.live().then(r => r.data),
-        staleTime: 60_000,
+        queryFn: () => analyticsAPI.dashboard().then(r => r.data),
+        staleTime: 10 * 60_000,
+        retry: 1,
     })
 
     const { data: approvals } = useQuery<ApprovalList>({
