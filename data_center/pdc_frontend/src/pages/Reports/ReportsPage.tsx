@@ -110,7 +110,7 @@ export default function ReportsPage() {
             inventory_type: filters.inventory_type,
             status: filters.status,
         }).then(r => r.data),
-        staleTime: 0,
+        staleTime: 5 * 60 * 1000,
     })
 
     const setFilter = <K extends keyof Filters>(key: K, val: Filters[K]) =>
