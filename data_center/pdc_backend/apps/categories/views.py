@@ -151,7 +151,7 @@ def _invalidate_category_cache():
     try:
         cache.delete_many([_CAT_FLAT_KEY, _CAT_TREE_KEY])
     except Exception:
-        pass
+        logger.warning('Cache invalidation failed (Redis unavailable?)', exc_info=True)
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -211,6 +211,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         try:
             cached = cache.get(_CAT_TREE_KEY)
         except Exception:
+            logger.warning('Cache read failed for tree (Redis unavailable?)', exc_info=True)
             cached = None
         if cached is not None:
             return Response(cached)
@@ -266,7 +267,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         try:
             cache.set(_CAT_TREE_KEY, result, _CAT_CACHE_TTL)
         except Exception:
-            pass
+            logger.warning('Cache write failed for tree (Redis unavailable?)', exc_info=True)
         return Response(result)
 
     # ── Flat list (for dropdowns) ─────────────────────────────────
@@ -287,6 +288,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         try:
             cached = cache.get(_CAT_FLAT_KEY)
         except Exception:
+            logger.warning('Cache read failed for flat list (Redis unavailable?)', exc_info=True)
             cached = None
         if cached is not None:
             return Response(cached)
@@ -352,7 +354,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         try:
             cache.set(_CAT_FLAT_KEY, out, _CAT_CACHE_TTL)
         except Exception:
-            pass
+            logger.warning('Cache write failed for flat list (Redis unavailable?)', exc_info=True)
         return Response(out)
 
     # ── Attributes ────────────────────────────────────────────────
