@@ -166,7 +166,7 @@ function CategoryModal({
             for (const n of nodes) {
                 if (!excludeIds.has(n.id) && n.level <= maxParentLevel) {
                     const indent = '— '.repeat(depth)
-                    out.push({ id: n.id, label: `${indent}${n.name_ar}`, level: n.level })
+                    out.push({ id: n.id, label: `${indent}${n.name_ar && /[\u0600-\u06FF]/.test(n.name_ar) ? n.name_ar : (n.name_en || n.name_ar)}`, level: n.level })
                 }
                 walk(n.children, depth + 1)
             }

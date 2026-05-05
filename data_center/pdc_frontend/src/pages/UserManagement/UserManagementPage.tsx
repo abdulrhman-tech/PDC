@@ -12,6 +12,7 @@ import {
 import { usersAPI, categoriesAPI } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { toast } from 'react-toastify'
+import { pickBilingual } from '@/i18n/bilingual'
 
 /* ── Types ── */
 interface DepartmentInfo { id: number; name_ar: string; name_en: string; level: number; path_ar: string }
@@ -129,7 +130,7 @@ function CategoryMultiPicker({
                             fontSize: 9, padding: '0 4px', borderRadius: 3,
                             background: 'rgba(0,0,0,0.25)', color: 'inherit',
                         }}>L{c.level}</span>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name_ar}</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pickBilingual(c.name_ar, c.name_en, true)}</span>
                         <button type="button" onClick={() => toggle(c.id)}
                             style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', display: 'flex', padding: 0 }}>
                             <X size={11} />
@@ -227,7 +228,7 @@ function CategoryMultiPicker({
                                     }}>L{c.level}</span>
                                     <div style={{ minWidth: 0, flex: 1 }}>
                                         <div style={{ fontSize: 12, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {c.name_ar}
+                                            {pickBilingual(c.name_ar, c.name_en, true)}
                                         </div>
                                         <div style={{ fontSize: 10, color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                             {c.path_ar}

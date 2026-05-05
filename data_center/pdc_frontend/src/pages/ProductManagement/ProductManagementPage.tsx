@@ -10,10 +10,11 @@ import { Plus, Edit3, Eye, CheckSquare, Square, Search, X, ChevronRight, Chevron
 import { productsAPI, categoriesAPI } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { toast } from 'react-toastify'
-import type { Product } from '@/types'
+import type { Product, CategoryFlat } from '@/types'
 import ProductLogsModal from '@/components/ProductLogsModal/ProductLogsModal'
 import BulkImageUploadModal from '@/components/BulkImageUploadModal/BulkImageUploadModal'
 import { CategoryTreeSelect } from '@/components/CategoryTreeSelect/CategoryTreeSelect'
+import { pickBilingual } from '@/i18n/bilingual'
 
 const PAGE_SIZE = 24
 
@@ -38,7 +39,7 @@ const STOCK_OPTIONS = [
     { value: 'أمر_شراء', label: 'أمر شراء' },
 ]
 
-interface Category { id: number; name_ar: string; slug: string }
+type Category = CategoryFlat
 
 /* ── Import Excel Modal ── */
 interface ImportResult {
@@ -62,10 +63,11 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     const { data: catsData } = useQuery({
-        queryKey: ['categories-list'],
-        queryFn: () => categoriesAPI.list(),
+        queryKey: ['categories-flat'],
+        queryFn: () => categoriesAPI.flat().then(r => r.data),
+        staleTime: 5 * 60 * 1000,
     })
-    const categories: { id: number; name_ar: string; slug: string }[] = catsData?.data?.results || catsData?.data || []
+    const categories: Category[] = Array.isArray(catsData) ? catsData : []
 
     const selectedCat = categories.find(c => String(c.id) === selectedCatId)
 
@@ -84,7 +86,7 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
             const url = URL.createObjectURL(new Blob([res.data]))
             const a = document.createElement('a')
             a.href = url
-            a.download = `template_${selectedCat?.slug || 'products'}.xlsx`
+            a.download = `template_${selectedCat?.code || 'products'}.xlsx`
             a.click()
             URL.revokeObjectURL(url)
         } catch {
@@ -186,7 +188,7 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(200,168,75,0.07)', border: '1px solid rgba(200,168,75,0.3)', borderRadius: 8 }}>
                             <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#C8A84B', flexShrink: 0 }} />
                             <div>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-gold)' }}>{categories[0].name_ar}</div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-gold)' }}>{pickBilingual(categories[0].name_ar, categories[0].name_en, true)}</div>
                                 <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 1 }}>قسمك المعيّن — لا يمكن تغييره</div>
                             </div>
                         </div>
@@ -203,7 +205,7 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
                         >
                             <option value="">— اختر القسم —</option>
                             {categories.map(c => (
-                                <option key={c.id} value={c.id}>{c.name_ar}</option>
+                                <option key={c.id} value={c.id}>{pickBilingual(c.name_ar, c.name_en, true)}</option>
                             ))}
                         </select>
                     )}
@@ -214,7 +216,7 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
                     <div style={stepTitle}>② تحميل القالب الخاص بالقسم</div>
                     <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 10, lineHeight: 1.7 }}>
                         يتضمن القالب الأعمدة الأساسية + السمات الديناميكية للقسم المحدد.
-                        {selectedCat && <> <strong style={{ color: '#4ADE80' }}>الأعمدة الخضراء</strong> = سمات خاصة بـ {selectedCat.name_ar}.</>}
+                        {selectedCat && <> <strong style={{ color: '#4ADE80' }}>الأعمدة الخضراء</strong> = سمات خاصة بـ {pickBilingual(selectedCat.name_ar, selectedCat.name_en, true)}.</>}
                     </div>
                     <button onClick={handleDownloadTemplate} disabled={downloading || !selectedCatId}
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 16px', background: 'rgba(200,168,75,0.12)', border: '1px solid rgba(200,168,75,0.3)', borderRadius: 8, color: 'var(--color-gold)', fontSize: 12, fontWeight: 600, cursor: (downloading || !selectedCatId) ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
@@ -413,7 +415,7 @@ function ExportModal({ onClose, categories }: { onClose: () => void; categories:
                         <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6, display: 'block' }}>التصنيف</label>
                         <select style={selStyle} value={exportCat} onChange={e => setExportCat(e.target.value)}>
                             <option value="">كل التصنيفات</option>
-                            {categories.map(c => <option key={c.id} value={c.slug}>{c.name_ar}</option>)}
+                            {categories.map(c => <option key={c.id} value={String(c.id)}>{pickBilingual(c.name_ar, c.name_en, true)}</option>)}
                         </select>
                     </div>
                     <div>
@@ -738,11 +740,11 @@ export default function ProductManagementPage() {
     const totalCount = data?.count ?? 0
 
     const { data: catsData } = useQuery({
-        queryKey: ['categories'],
-        queryFn: () => categoriesAPI.list().then(r => r.data),
+        queryKey: ['categories-flat'],
+        queryFn: () => categoriesAPI.flat().then(r => r.data),
         staleTime: 5 * 60 * 1000,
     })
-    const categories: Category[] = Array.isArray(catsData) ? catsData : (catsData?.results ?? [])
+    const categories: Category[] = Array.isArray(catsData) ? catsData : []
 
     const toggleSelect = (id: number) =>
         setSelected(s => s.includes(id) ? s.filter(i => i !== id) : [...s, id])
