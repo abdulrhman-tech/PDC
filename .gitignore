@@ -1,8 +1,51 @@
-
-# Replit workspace files (contain secrets)
-.replit
-replit.nix
+# ── Secrets & environment ───────────────────────────────────
 .env
 *.env
+.env.*
+!.env.example
 railway_env_vars*.txt
+
+# ── Replit workspace files ──────────────────────────────────
+.replit
+replit.nix
+.cache/
+.config/
+.local/
 attached_assets/
+
+# ── Python ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.cover
+
+# ── Django ──────────────────────────────────────────────────
+data_center/pdc_backend/staticfiles/
+data_center/pdc_backend/media/
+data_center/pdc_backend/db.sqlite3
+
+# ── Node / React ────────────────────────────────────────────
+node_modules/
+data_center/pdc_frontend/node_modules/
+data_center/pdc_frontend/dist/
+data_center/pdc_frontend/.vite/
+
+# ── Logs ────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+
+# ── OS ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
