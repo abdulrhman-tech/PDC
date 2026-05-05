@@ -13,6 +13,7 @@ services:
       python manage.py collectstatic --noinput &&
       gunicorn pdc_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     envVars:
+      # ── Django ──────────────────────────────────────────────
       - key: DJANGO_SETTINGS_MODULE
         value: pdc_backend.settings.production
       - key: DEBUG
@@ -21,21 +22,48 @@ services:
         value: "*"
       - key: SECRET_KEY
         sync: false
-      - key: DATABASE_URL
-        sync: false
+
+      # ── Database (Neon PostgreSQL) ───────────────────────────
+      # أضف قيمة NEON_DATABASE_URL في Render dashboard يدوياً
       - key: NEON_DATABASE_URL
         sync: false
-      - key: OPENAI_API_KEY
+
+      # ── Redis (Upstash) ──────────────────────────────────────
+      - key: REDIS_URL
         sync: false
-      - key: KIE_AI_API_KEY
-        sync: false
-      - key: R2_ACCOUNT_ID
-        sync: false
+
+      # ── Cloudflare R2 ────────────────────────────────────────
       - key: R2_ACCESS_KEY_ID
         sync: false
       - key: R2_SECRET_ACCESS_KEY
         sync: false
       - key: R2_BUCKET_NAME
         sync: false
+      - key: R2_ENDPOINT_URL
+        sync: false
       - key: R2_PUBLIC_URL
+        sync: false
+      - key: R2_TOKEN
+        sync: false
+
+      # ── AI APIs ──────────────────────────────────────────────
+      - key: OPENAI_API_KEY_PDC
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: KIE_AI_API_KEY
+        sync: false
+      - key: REMOVEBG_API_KEY
+        sync: false
+
+      # ── SAP Integration ──────────────────────────────────────
+      - key: SAP_ACTIVE_ENV
+        value: PRD
+      - key: SAP_USERNAME
+        sync: false
+      - key: SAP_PASSWORD
+        sync: false
+      - key: SAP_PROXY_URL
+        sync: false
+      - key: SAP_PROXY_SECRET
         sync: false
