@@ -32,6 +32,7 @@ interface UnmatchedItem {
 interface ErrorItem {
     filename: string
     error: string
+    error_detail?: string
 }
 
 interface UploadResult {
@@ -480,11 +481,16 @@ export default function BulkImageUploadModal({ onClose }: Props) {
                             ))}
 
                             {activeTab === 'errors' && result.errors.map((item, i) => (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 8 }}>
-                                    <XCircle size={14} color="#ef4444" style={{ flexShrink: 0 }} />
-                                    <div>
+                                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 10px', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 8 }}>
+                                    <XCircle size={14} color="#ef4444" style={{ flexShrink: 0, marginTop: 2 }} />
+                                    <div style={{ minWidth: 0, flex: 1 }}>
                                         <div style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--color-text-primary)' }}>{item.filename}</div>
                                         <div style={{ fontSize: 11, color: '#ef4444', marginTop: 2 }}>{item.error}</div>
+                                        {item.error_detail && (
+                                            <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 4, fontFamily: 'monospace', wordBreak: 'break-word', opacity: 0.8 }}>
+                                                {item.error_detail}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             ))}

@@ -701,10 +701,22 @@ def bulk_images_upload(request):
 
         try:
             file_bytes = file.read()
-            r2_url = upload_bytes(r2_key, file_bytes, content_type=file.content_type)
+            if not file_bytes:
+                errors.append({
+                    'filename': rel_path,
+                    'error': 'الملف فارغ أو لم يصل كاملاً إلى الخادم',
+                    'error_detail': f'file.size={file.size} bytes_read=0 content_type={file.content_type}',
+                })
+                continue
+            r2_url = upload_bytes(r2_key, file_bytes, content_type=file.content_type or 'image/jpeg')
         except Exception as e:
-            logger.error(f"Bulk upload R2 error for {rel_path}: {e}")
-            errors.append({'filename': rel_path, 'error': 'فشل رفع الملف إلى التخزين'})
+            logger.error(f"Bulk upload R2 error for {rel_path}: {type(e).__name__}: {e}")
+            detail = f'{type(e).__name__}: {str(e)[:200]}'
+            errors.append({
+                'filename': rel_path,
+                'error': 'فشل رفع الملف إلى التخزين',
+                'error_detail': detail,
+            })
             continue
 
         # If we're inserting a new MAIN, demote ANY existing MAIN of this
