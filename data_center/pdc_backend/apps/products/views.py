@@ -200,11 +200,6 @@ class ProductViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         product = self.get_object()
-        if not product.images.filter(image_type='main', status='approved').exists():
-            return Response(
-                {'detail': 'يجب رفع صورة رئيسية معتمدة قبل النشر.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
         product.status = ProductStatus.ACTIVE
         product.published_at = timezone.now()
         product.updated_by = request.user
