@@ -280,7 +280,7 @@ export default function ProductCatalogPage() {
         pickBilingual(c.name_ar, c.name_en, isAr)
 
     /* ── Core state ── */
-    const [filters, setFilters] = useState<ProductFilters>({ page_size: 24 })
+    const [filters, setFilters] = useState<ProductFilters>({ page_size: 24, status: 'نشط' })
     const [search, setSearch] = useState('')
     const [searchFocused, setSearchFocused] = useState(false)
     const [hoverCatId, setHoverCatId] = useState<number | null>(null)
