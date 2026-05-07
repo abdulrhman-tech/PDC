@@ -10,6 +10,7 @@ from django.db.models import Q
 from apps.users.models import User
 from apps.users.serializers import UserSerializer, UserProfileSerializer, UserAdminSerializer, CreateUserSerializer
 from apps.categories.models import Category
+from pdc_backend.throttles import LoginRateThrottle
 
 
 class IsSuperAdmin(permissions.BasePermission):
@@ -19,6 +20,7 @@ class IsSuperAdmin(permissions.BasePermission):
 
 class LoginView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request):
         email = request.data.get('email')
