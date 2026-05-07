@@ -4,10 +4,11 @@ Simple text translation endpoint backed by Gemini.
 """
 import logging
 from django.conf import settings
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from pdc_backend.throttles import TranslateThrottle
 
 from .gemini_service import call_gemini
 from .openai_service import call_openai
@@ -127,6 +128,7 @@ def translate_text_core(text: str, src: str, dst: str) -> tuple[str, str]:
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([TranslateThrottle])
 def translate_text(request):
     text = (request.data.get('text') or '').strip()
     src = (request.data.get('from') or 'ar').lower()
