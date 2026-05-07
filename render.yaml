@@ -2,7 +2,6 @@ services:
   - type: web
     name: bayt-alebaa-pdc
     runtime: python
-    pythonVersion: "3.11"
     buildCommand: >
       pip install --upgrade pip &&
       pip install -r data_center/pdc_backend/requirements.txt &&
@@ -71,7 +70,6 @@ services:
   - type: worker
     name: bayt-alebaa-celery
     runtime: python
-    pythonVersion: "3.11"
     buildCommand: >
       pip install --upgrade pip &&
       pip install -r data_center/pdc_backend/requirements.txt
