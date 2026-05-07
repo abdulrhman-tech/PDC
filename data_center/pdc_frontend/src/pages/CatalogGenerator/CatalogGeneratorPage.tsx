@@ -2,7 +2,7 @@
  * CatalogGeneratorPage — توليد كتالوج PDF ديناميكي
  * تخطيط: لوحة إعدادات يسار + معاينة فورية يمين
  */
-import { useState, useMemo, useRef, useCallback } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 import BukraRegularUrl from '@/fonts/29LTBukra-Regular.ttf?url'
@@ -145,10 +145,13 @@ export default function CatalogGeneratorPage() {
     /* الحالة */
     const [leftTab, setLeftTab] = useState<'products' | 'design'>('products')
     const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+    const [selectedProductsMap, setSelectedProductsMap] = useState<Map<number, Product>>(new Map())
     const [orderedIds, setOrderedIds] = useState<number[]>([])
     const [settings, setSettings] = useState<CatalogSettings>(DEFAULT_SETTINGS)
     const [search, setSearch] = useState('')
+    const [debouncedSearch, setDebouncedSearch] = useState('')
     const [catFilter, setCatFilter] = useState<string>('')
+    const [page, setPage] = useState(1)
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
     const dragItem = useRef<number | null>(null)
     const dragOver = useRef<number | null>(null)
@@ -166,16 +169,29 @@ export default function CatalogGeneratorPage() {
             return next
         })
 
-    /* ── جلب البيانات ──
-       Note: we intentionally DO NOT filter by status here. The catalog
-       generator is an internal tool — the user picks which products to
-       include — so we surface every product (نشط/مسودة/قيد_المراجعة/…)
-       and let selection drive what ends up in the PDF. We also use the
-       flat category endpoint to get breadcrumb paths + parent links so
-       we can show a hierarchical dropdown and cascade-filter by subtree. */
-    const { data: productsData, isLoading } = useQuery({
-        queryKey: ['catalog-products'],
-        queryFn: () => productsAPI.list({ page_size: 2000 }).then(r => r.data),
+    /* ── debounce البحث (400ms) ── */
+    useEffect(() => {
+        const t = setTimeout(() => { setDebouncedSearch(search); setPage(1) }, 400)
+        return () => clearTimeout(t)
+    }, [search])
+
+    /* ── إعادة تعيين الصفحة عند تغيير القسم ── */
+    useEffect(() => { setPage(1) }, [catFilter])
+
+    /* ── جلب البيانات — server-side search + pagination ──────────────────
+       بدلاً من جلب 2000 منتج دفعة واحدة، نجلب 40 فقط لكل صفحة
+       والبحث يتم على الـ backend فيشمل كل المنتجات بدون حد. */
+    const PAGE_SIZE = 40
+    const { data: productsData, isLoading, isFetching } = useQuery({
+        queryKey: ['catalog-products', debouncedSearch, catFilter, page],
+        queryFn: () => productsAPI.list({
+            page_size: PAGE_SIZE,
+            page,
+            ...(debouncedSearch ? { search: debouncedSearch } : {}),
+            ...(catFilter ? { category: catFilter } : {}),
+        }).then(r => r.data),
+        placeholderData: (prev: unknown) => prev,
+        staleTime: 30_000,
     })
     const { data: categoriesData } = useQuery({
         queryKey: ['categories', 'flat'],
@@ -224,43 +240,14 @@ export default function CatalogGeneratorPage() {
         () => (Array.isArray(categoriesData) ? categoriesData : []) as CategoryFlat[],
         [categoriesData],
     )
-    const allProducts: Product[] = useMemo(() => productsData?.results ?? [], [productsData])
 
-    /* Build parent → all-descendants map (includes self) so picking a root
-       category cascades to every leaf below it. Without this, selecting
-       a root returned zero products because products live on deep subs. */
-    const descendantsByCategory = useMemo(() => {
-        const childrenOf = new Map<number, number[]>()
-        for (const c of flatCategories) {
-            if (c.parent != null) {
-                const arr = childrenOf.get(c.parent) ?? []
-                arr.push(c.id)
-                childrenOf.set(c.parent, arr)
-            }
-        }
-        const map = new Map<number, Set<number>>()
-        const collect = (rootId: number): Set<number> => {
-            const acc = new Set<number>([rootId])
-            const stack = [rootId]
-            while (stack.length) {
-                const cur = stack.pop()!
-                for (const child of childrenOf.get(cur) ?? []) {
-                    if (!acc.has(child)) {
-                        acc.add(child)
-                        stack.push(child)
-                    }
-                }
-            }
-            return acc
-        }
-        for (const c of flatCategories) map.set(c.id, collect(c.id))
-        return map
-    }, [flatCategories])
+    /* نتائج البحث الحالية (الصفحة الحالية فقط) */
+    const searchResults: Product[] = useMemo(() => productsData?.results ?? [], [productsData])
+    const totalCount: number = (productsData as { count?: number })?.count ?? 0
+    const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
     /* Categories shown in the dropdown — only those that actually contain
-       products (directly or via descendants). Avoids drowning the user in
-       1.4k empty branches. Sorted for display: level (roots first), then
-       breadcrumb path. */
+       products. Sorted: roots first, then breadcrumb. */
     const dropdownCategories: CategoryFlat[] = useMemo(() => {
         return flatCategories
             .filter(c => c.has_products)
@@ -270,30 +257,14 @@ export default function CatalogGeneratorPage() {
             })
     }, [flatCategories])
 
-    /* ── فلترة ── */
-    const filtered = useMemo(() => {
-        let list = allProducts
-        if (catFilter) {
-            const allowed = descendantsByCategory.get(Number(catFilter)) ?? new Set<number>([Number(catFilter)])
-            list = list.filter(p => p.category != null && allowed.has(Number(p.category)))
-        }
-        if (search.trim()) {
-            const q = search.trim().toLowerCase()
-            list = list.filter(p =>
-                p.product_name_ar?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q)
-            )
-        }
-        return list
-    }, [allProducts, catFilter, search, descendantsByCategory])
-
-    /* ── المنتجات المختارة بترتيبها (مع إزالة المكررات) ── */
+    /* ── المنتجات المختارة بترتيبها — تُجلب من الـ map المحلي ── */
     const selectedProducts = useMemo(() => {
         const seen = new Set<number>()
         return orderedIds
             .filter(id => { if (seen.has(id)) return false; seen.add(id); return true })
-            .map(id => allProducts.find(p => p.id === id))
+            .map(id => selectedProductsMap.get(id))
             .filter(Boolean) as Product[]
-    }, [orderedIds, allProducts])
+    }, [orderedIds, selectedProductsMap])
 
     /* ── تحديد/إلغاء مشروع ── */
     const toggleProject = useCallback((id: number) => {
@@ -309,12 +280,19 @@ export default function CatalogGeneratorPage() {
         })
     }, [])
 
-    /* ── تحديد/إلغاء منتج ── */
-    const toggleProduct = useCallback((id: number) => {
+    /* ── تحديد/إلغاء منتج — نخزّن الـ Product object كاملاً ── */
+    const toggleProduct = useCallback((product: Product) => {
+        const id = product.id
         setSelectedIds(prev => {
             const next = new Set(prev)
             if (next.has(id)) next.delete(id)
             else next.add(id)
+            return next
+        })
+        setSelectedProductsMap(prev => {
+            const next = new Map(prev)
+            if (next.has(id)) next.delete(id)
+            else next.set(id, product)
             return next
         })
         setOrderedIds(prev => {
@@ -323,13 +301,18 @@ export default function CatalogGeneratorPage() {
         })
     }, [])
 
-    /* ── تحديد الكل ── */
-    const allFilteredSelected = filtered.length > 0 && filtered.every(p => selectedIds.has(p.id))
+    /* ── تحديد كل نتائج الصفحة الحالية ── */
+    const allCurrentSelected = searchResults.length > 0 && searchResults.every(p => selectedIds.has(p.id))
     const toggleAll = useCallback(() => {
-        if (allFilteredSelected) {
-            const removeSet = new Set(filtered.map(p => p.id))
+        if (allCurrentSelected) {
+            const removeSet = new Set(searchResults.map(p => p.id))
             setSelectedIds(prev => {
                 const next = new Set(prev)
+                removeSet.forEach(id => next.delete(id))
+                return next
+            })
+            setSelectedProductsMap(prev => {
+                const next = new Map(prev)
                 removeSet.forEach(id => next.delete(id))
                 return next
             })
@@ -337,16 +320,21 @@ export default function CatalogGeneratorPage() {
         } else {
             setSelectedIds(prev => {
                 const next = new Set(prev)
-                filtered.forEach(p => next.add(p.id))
+                searchResults.forEach(p => next.add(p.id))
+                return next
+            })
+            setSelectedProductsMap(prev => {
+                const next = new Map(prev)
+                searchResults.forEach(p => next.set(p.id, p))
                 return next
             })
             setOrderedIds(prev => {
                 const existing = new Set(prev)
-                const toAdd = filtered.filter(p => !existing.has(p.id)).map(p => p.id)
+                const toAdd = searchResults.filter(p => !existing.has(p.id)).map(p => p.id)
                 return [...prev, ...toAdd]
             })
         }
-    }, [allFilteredSelected, filtered])
+    }, [allCurrentSelected, searchResults])
 
     /* ── Drag to reorder ── */
     const handleDragStart = (idx: number) => { dragItem.current = idx }
@@ -801,34 +789,37 @@ export default function CatalogGeneratorPage() {
                                         onClick={toggleAll}
                                         style={{
                                             padding: '7px 12px', borderRadius: 8, cursor: 'pointer',
-                                            background: allFilteredSelected ? 'rgba(16,185,129,0.1)' : 'rgba(200,168,75,0.08)',
-                                            border: `1px solid ${allFilteredSelected ? '#10B981' : 'var(--color-gold)'}40`,
-                                            color: allFilteredSelected ? '#10B981' : 'var(--color-gold)',
+                                            background: allCurrentSelected ? 'rgba(16,185,129,0.1)' : 'rgba(200,168,75,0.08)',
+                                            border: `1px solid ${allCurrentSelected ? '#10B981' : 'var(--color-gold)'}40`,
+                                            color: allCurrentSelected ? '#10B981' : 'var(--color-gold)',
                                             fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
                                             width: '100%', justifyContent: 'center', fontFamily: 'inherit',
                                         }}
                                     >
-                                        {allFilteredSelected ? <CheckSquare size={13} /> : <Square size={13} />}
-                                        {allFilteredSelected ? 'إلغاء تحديد الظاهرين' : `تحديد الكل (${filtered.length})`}
+                                        {allCurrentSelected ? <CheckSquare size={13} /> : <Square size={13} />}
+                                        {allCurrentSelected
+                                            ? 'إلغاء تحديد الظاهرين'
+                                            : `تحديد هذه الصفحة (${searchResults.length})`}
                                     </button>
                                 </div>
 
                                 {/* قائمة المنتجات */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 340, overflowY: 'auto', marginBottom: 16 }}>
+                                <div style={{ opacity: isFetching && !isLoading ? 0.6 : 1, transition: 'opacity .15s' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
                                     {isLoading ? (
                                         [...Array(6)].map((_, i) => (
                                             <div key={i} className="skeleton" style={{ height: 52, borderRadius: 8 }} />
                                         ))
-                                    ) : filtered.length === 0 ? (
+                                    ) : searchResults.length === 0 ? (
                                         <div style={{ textAlign: 'center', padding: 20, color: 'var(--color-text-muted)', fontSize: 12 }}>
                                             لا توجد منتجات
                                         </div>
-                                    ) : filtered.map(p => {
+                                    ) : searchResults.map(p => {
                                         const selected = selectedIds.has(p.id)
                                         return (
                                             <div
                                                 key={p.id}
-                                                onClick={() => toggleProduct(p.id)}
+                                                onClick={() => toggleProduct(p)}
                                                 style={{
                                                     display: 'flex', alignItems: 'center', gap: 8,
                                                     padding: '7px 10px', borderRadius: 8, cursor: 'pointer',
@@ -864,6 +855,41 @@ export default function CatalogGeneratorPage() {
                                             </div>
                                         )
                                     })}
+                                </div>
+
+                                {/* ── Pagination ── */}
+                                {totalPages > 1 && (
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                        marginBottom: 12, padding: '6px 2px',
+                                    }}>
+                                        <button
+                                            onClick={() => setPage(p => Math.max(1, p - 1))}
+                                            disabled={page <= 1}
+                                            style={{
+                                                padding: '4px 10px', borderRadius: 6, border: '1px solid var(--color-border-strong)',
+                                                background: 'var(--color-surface-raised)', color: page <= 1 ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
+                                                cursor: page <= 1 ? 'not-allowed' : 'pointer', fontSize: 11, fontFamily: 'inherit',
+                                            }}
+                                        >
+                                            ‹ السابق
+                                        </button>
+                                        <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
+                                            {page} / {totalPages} · {totalCount.toLocaleString('ar')} منتج
+                                        </span>
+                                        <button
+                                            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                            disabled={page >= totalPages}
+                                            style={{
+                                                padding: '4px 10px', borderRadius: 6, border: '1px solid var(--color-border-strong)',
+                                                background: 'var(--color-surface-raised)', color: page >= totalPages ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
+                                                cursor: page >= totalPages ? 'not-allowed' : 'pointer', fontSize: 11, fontFamily: 'inherit',
+                                            }}
+                                        >
+                                            التالي ›
+                                        </button>
+                                    </div>
+                                )}
                                 </div>
 
                                 {/* ──── قسم المشاريع ──── */}
@@ -1011,7 +1037,7 @@ export default function CatalogGeneratorPage() {
                                         </div>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                             {orderedIds.map((id, idx) => {
-                                                const p = allProducts.find(x => x.id === id)
+                                                const p = selectedProductsMap.get(id)
                                                 if (!p) return null
                                                 return (
                                                     <div
