@@ -39,6 +39,12 @@ const STOCK_OPTIONS = [
     { value: 'أمر_شراء', label: 'أمر شراء' },
 ]
 
+const IMAGES_OPTIONS = [
+    { value: '', label: 'كل الصور' },
+    { value: 'true', label: 'بصور' },
+    { value: 'false', label: 'بدون صور' },
+]
+
 type Category = CategoryFlat
 
 /* ── Import Excel Modal ── */
@@ -549,15 +555,15 @@ function DeleteModal({ count, onConfirm, onCancel, loading }: {
 }
 
 /* ── Filter Bar ── */
-interface Filters { search: string; category: string; status: string; inventory_type: string }
-const emptyFilters = (): Filters => ({ search: '', category: '', status: '', inventory_type: '' })
+interface Filters { search: string; category: string; status: string; inventory_type: string; has_images: string }
+const emptyFilters = (): Filters => ({ search: '', category: '', status: '', inventory_type: '', has_images: '' })
 
 function FilterBar({ filters, onChange, onReset }: {
     filters: Filters
     onChange: (f: Filters) => void
     onReset: () => void
 }) {
-    const hasActive = filters.search || filters.category || filters.status || filters.inventory_type
+    const hasActive = filters.search || filters.category || filters.status || filters.inventory_type || filters.has_images
 
     const selStyle: React.CSSProperties = {
         height: 38, padding: '0 12px', border: '1px solid var(--color-border-strong)',
@@ -595,6 +601,11 @@ function FilterBar({ filters, onChange, onReset }: {
             {/* Inventory type */}
             <select style={selStyle} value={filters.inventory_type} onChange={e => onChange({ ...filters, inventory_type: e.target.value })}>
                 {STOCK_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+
+            {/* Has images */}
+            <select style={selStyle} value={filters.has_images} onChange={e => onChange({ ...filters, has_images: e.target.value })}>
+                {IMAGES_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
 
             {/* Reset */}
@@ -730,6 +741,7 @@ export default function ProductManagementPage() {
     if (filters.category) params.category = filters.category
     if (filters.status) params.status = filters.status
     if (filters.inventory_type) params.inventory_type = filters.inventory_type
+    if (filters.has_images) params.has_images = filters.has_images
 
     const { data, isLoading } = useQuery({
         queryKey: ['products-mgmt', params],
@@ -760,7 +772,7 @@ export default function ProductManagementPage() {
                         <h1 className="page-header-title">إدارة المنتجات</h1>
                         <p className="page-header-sub">
                             {totalCount.toLocaleString('ar')} منتج
-                            {(filters.search || filters.category || filters.status || filters.inventory_type) &&
+                            {(filters.search || filters.category || filters.status || filters.inventory_type || filters.has_images) &&
                                 <span style={{ color: 'var(--color-gold)', marginRight: 6 }}>— نتائج مفلترة</span>
                             }
                         </p>
