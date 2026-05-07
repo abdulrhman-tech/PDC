@@ -6,7 +6,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Edit3, Eye, CheckSquare, Square, Search, X, ChevronRight, ChevronLeft, Trash2, AlertTriangle, ScrollText, Upload, Download, FileSpreadsheet, CheckCircle2, XCircle, Loader2, Images } from 'lucide-react'
+import { Plus, Edit3, Eye, CheckSquare, Square, Search, X, ChevronRight, ChevronLeft, Trash2, AlertTriangle, ScrollText, Upload, Download, FileSpreadsheet, CheckCircle2, XCircle, Loader2, Images, ListChecks } from 'lucide-react'
 import { productsAPI, categoriesAPI } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { toast } from 'react-toastify'
@@ -640,6 +640,8 @@ export default function ProductManagementPage() {
 
     const canDelete = user?.role === 'super_admin'
     const canPublish = !!user?.permissions?.can_publish_product
+    const [isLoadingAllIds, setIsLoadingAllIds] = useState(false)
+    const [selectAllMode, setSelectAllMode] = useState(false)
 
     const invalidate = useCallback(() => {
         qc.invalidateQueries({ queryKey: ['products-mgmt'] })
@@ -652,6 +654,7 @@ export default function ProductManagementPage() {
         onSuccess: (_data, ids) => {
             toast.success(ids.length === 1 ? 'تم حذف المنتج' : `تم حذف ${ids.length} منتجات`)
             setSelected([])
+            setSelectAllMode(false)
             setDeleteTarget(null)
             invalidate()
         },
@@ -667,27 +670,30 @@ export default function ProductManagementPage() {
     }, [deleteTarget, selected, deleteMutation])
 
     /* ── Bulk activate (publish) selected products ─────────────────────
-     *  Uses the existing per-product publish endpoint in parallel via
-     *  allSettled so a failure on one product (e.g. missing approved main
-     *  image, status not eligible) doesn't abort the whole batch. We then
-     *  surface a per-bucket summary toast. */
+     *  Sends requests in batches of 50 so large selections (hundreds or
+     *  thousands) don't flood the server.  allSettled inside each batch
+     *  means one failure never aborts the rest. */
+    const ACTIVATE_BATCH = 50
     const activateMutation = useMutation({
         mutationFn: async (ids: number[]) => {
-            const results = await Promise.allSettled(ids.map(id => productsAPI.publish(id)))
             const succeeded: number[] = []
             const failed: { id: number; reason: string }[] = []
-            results.forEach((r, i) => {
-                const id = ids[i]
-                if (r.status === 'fulfilled') {
-                    succeeded.push(id)
-                } else {
-                    const detail =
-                        (r.reason as any)?.response?.data?.detail ||
-                        (r.reason as any)?.message ||
-                        'خطأ غير معروف'
-                    failed.push({ id, reason: String(detail) })
-                }
-            })
+            for (let i = 0; i < ids.length; i += ACTIVATE_BATCH) {
+                const batch = ids.slice(i, i + ACTIVATE_BATCH)
+                const batchResults = await Promise.allSettled(batch.map(id => productsAPI.publish(id)))
+                batchResults.forEach((r, j) => {
+                    const id = batch[j]
+                    if (r.status === 'fulfilled') {
+                        succeeded.push(id)
+                    } else {
+                        const detail =
+                            (r.reason as any)?.response?.data?.detail ||
+                            (r.reason as any)?.message ||
+                            'خطأ غير معروف'
+                        failed.push({ id, reason: String(detail) })
+                    }
+                })
+            }
             return { succeeded, failed }
         },
         onSuccess: ({ succeeded, failed }) => {
@@ -699,7 +705,6 @@ export default function ProductManagementPage() {
                 )
             }
             if (failed.length > 0) {
-                // Show first failure reason as a hint; common cause is "missing main image"
                 const sample = failed[0].reason
                 toast.error(
                     failed.length === 1
@@ -707,9 +712,9 @@ export default function ProductManagementPage() {
                         : `تعذّر تنشيط ${failed.length} منتج (${sample})`,
                 )
             }
-            // Drop only the ones we actually activated, keep failures selected
-            // so the user can fix them and retry without re-selecting.
+            // Keep failures selected so user can fix and retry
             setSelected(prev => prev.filter(id => !succeeded.includes(id)))
+            if (succeeded.length > 0 && failed.length === 0) setSelectAllMode(false)
             invalidate()
         },
         onError: () => {
@@ -717,23 +722,50 @@ export default function ProductManagementPage() {
         },
     })
 
+    /* ── Select all results across all pages ──────────────────────────
+     *  Fetches only IDs (lightweight endpoint) matching the current
+     *  filters, then sets the full list as the selection. */
+    const selectAllResults = useCallback(async () => {
+        setIsLoadingAllIds(true)
+        try {
+            const filterParams: Record<string, string | number> = {}
+            if (filters.search) filterParams.search = filters.search
+            if (filters.category) filterParams.category = filters.category
+            if (filters.status) filterParams.status = filters.status
+            if (filters.inventory_type) filterParams.inventory_type = filters.inventory_type
+            if (filters.has_images) filterParams.has_images = filters.has_images
+            const res = await productsAPI.listIds(filterParams)
+            const ids: number[] = res.data.ids ?? []
+            setSelected(ids)
+            setSelectAllMode(true)
+            toast.info(`تم تحديد كل ${ids.length.toLocaleString('ar')} منتج`)
+        } catch {
+            toast.error('تعذّر جلب قائمة المنتجات')
+        } finally {
+            setIsLoadingAllIds(false)
+        }
+    }, [filters])
+
     const handleFiltersChange = useCallback((f: Filters) => {
         setFilters(f)
         setPage(1)
         setSelected([])
+        setSelectAllMode(false)
     }, [])
 
     const handleReset = useCallback(() => {
         setFilters(emptyFilters())
         setPage(1)
         setSelected([])
+        setSelectAllMode(false)
     }, [])
 
     const handlePageChange = useCallback((p: number) => {
         setPage(p)
-        setSelected([])
+        // When user selected all results across pages, keep selection on page nav
+        if (!selectAllMode) setSelected([])
         window.scrollTo({ top: 0, behavior: 'smooth' })
-    }, [])
+    }, [selectAllMode])
 
     // Build params
     const params: Record<string, string | number> = { page, page_size: PAGE_SIZE }
@@ -823,11 +855,41 @@ export default function ProductManagementPage() {
                     background: 'rgba(200,168,75,0.1)', border: '1px solid rgba(200,168,75,0.35)',
                     borderRadius: 8, padding: '10px 16px',
                     display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16,
+                    flexWrap: 'wrap',
                 }}>
                     <CheckSquare size={16} color="var(--color-gold)" />
-                    <span style={{ fontWeight: 600, color: 'var(--color-text-primary)', flex: 1 }}>
-                        {selected.length} منتج محدد
+                    <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                        {selectAllMode
+                            ? `تم تحديد كل ${selected.length.toLocaleString('ar')} منتج`
+                            : `${selected.length.toLocaleString('ar')} منتج محدد`}
                     </span>
+
+                    {/* Select ALL results button — shown when not all results are selected yet */}
+                    {!selectAllMode && selected.length < totalCount && (
+                        <button
+                            onClick={selectAllResults}
+                            disabled={isLoadingAllIds}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: 5,
+                                padding: '5px 12px',
+                                border: '1px solid rgba(200,168,75,0.5)',
+                                borderRadius: 7,
+                                background: 'rgba(200,168,75,0.15)',
+                                color: 'var(--color-gold)',
+                                cursor: isLoadingAllIds ? 'wait' : 'pointer',
+                                fontSize: 12, fontFamily: 'inherit',
+                                opacity: isLoadingAllIds ? 0.7 : 1,
+                            }}
+                        >
+                            {isLoadingAllIds
+                                ? <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} />
+                                : <ListChecks size={12} />}
+                            تحديد كل النتائج ({totalCount.toLocaleString('ar')})
+                        </button>
+                    )}
+
+                    <div style={{ flex: 1 }} />
+
                     {canPublish && (
                         <button
                             onClick={() => activateMutation.mutate(selected)}
@@ -858,7 +920,7 @@ export default function ProductManagementPage() {
                             حذف المحددين
                         </button>
                     )}
-                    <button onClick={() => setSelected([])}
+                    <button onClick={() => { setSelected([]); setSelectAllMode(false) }}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-warm-gray)', padding: 4 }}>
                         <X size={15} />
                     </button>
