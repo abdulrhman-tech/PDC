@@ -73,6 +73,7 @@ export const productsAPI = {
         api.delete(`/products/${productId}/images/${imageId}/`),
     updateImage: (productId: number, imageId: number, data: object) =>
         api.patch(`/products/${productId}/images/${imageId}/`, data),
+    listIds: (params?: object) => api.get('/products/ids/', { params }),
     importExcel: (formData: FormData) =>
         api.post('/products/import-excel/', formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
