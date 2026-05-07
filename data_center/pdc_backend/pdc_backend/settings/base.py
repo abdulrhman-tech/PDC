@@ -166,17 +166,24 @@ REST_FRAMEWORK = {
         'rest_framework.filters.SearchFilter',
         'rest_framework.filters.OrderingFilter',
     ],
-    # Custom pagination class adds `?page_size=N` query-param support
-    # (default DRF PageNumberPagination ignores it). Capped at 5k so the
-    # catalog generator and similar admin tools can fetch the full set
-    # in one request without unbounded memory risk.
     'DEFAULT_PAGINATION_CLASS': 'pdc_backend.pagination.StandardResultsSetPagination',
     'PAGE_SIZE': 24,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-    # Custom handler returns friendly Arabic JSON for low-level Django
-    # exceptions (e.g. TooManyFilesSent during multipart parsing) that
-    # otherwise surface as bare 400/500 responses with no body.
     'EXCEPTION_HANDLER': 'pdc_backend.exceptions.custom_exception_handler',
+    # Rate limiting — state is stored in Django cache (Redis in prod, LocMem in dev).
+    # Anon: 200 req/hour  |  Auth users: 3000 req/hour
+    # Sensitive scopes defined in THROTTLE_RATES override these defaults per-view.
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon':          '200/hour',
+        'user':          '3000/hour',
+        'login':         '10/min',      # LoginRateThrottle (per IP)
+        'ai_generation': '60/hour',     # AIGenerationThrottle (per user)
+        'translate':     '500/hour',    # TranslateThrottle (per user)
+    },
 }
 
 # Spectacular (Swagger)
