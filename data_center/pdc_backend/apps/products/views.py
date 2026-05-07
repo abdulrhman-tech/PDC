@@ -386,6 +386,20 @@ class ProductViewSet(viewsets.ModelViewSet):
     # methods without authentication, so no permission_classes override
     # is needed — GET requests stay public.
 
+    @action(detail=False, methods=['get'], url_path='ids')
+    def ids(self, request):
+        """Return only the IDs of products matching current filters.
+
+        Used by the frontend "select all results" button so the user can
+        select every product across all pages in a single lightweight call
+        instead of paginating through every page.
+
+        Response: { "count": N, "ids": [id1, id2, ...] }
+        """
+        qs = self.filter_queryset(self.get_queryset())
+        id_list = list(qs.values_list('id', flat=True))
+        return Response({'count': len(id_list), 'ids': id_list})
+
     @action(detail=False, methods=['get'], url_path='flipbook-manifest')
     def flipbook_manifest(self, request):
         """Per-category counts for products that have at least one approved image.
