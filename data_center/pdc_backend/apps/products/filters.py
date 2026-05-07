@@ -74,8 +74,8 @@ class ProductFilter(django_filters.FilterSet):
 
     def filter_has_images(self, queryset, name, value):
         if value:
-            return queryset.filter(images__image_type='main', images__status='approved').distinct()
-        return queryset.exclude(images__image_type='main', images__status='approved').distinct()
+            return queryset.filter(images__isnull=False).distinct()
+        return queryset.filter(images__isnull=True)
 
     def filter_has_lifestyle(self, queryset, name, value):
         if value:
