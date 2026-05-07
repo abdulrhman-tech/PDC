@@ -43,6 +43,12 @@ def _test_openai_text() -> dict:
         return {'status': 'error', 'message': reason, 'key_preview': _mask(getattr(settings, 'OPENAI_API_KEY', ''))}
 
 
+_TINY_PNG_B64 = (
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk'
+    'YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+)
+
+
 def _test_openai_vision() -> dict:
     try:
         from openai import OpenAI
@@ -55,14 +61,14 @@ def _test_openai_vision() -> dict:
             messages=[{
                 'role': 'user',
                 'content': [
-                    {'type': 'text', 'text': 'What color is the sky? One word.'},
+                    {'type': 'text', 'text': 'Reply with one word: OK'},
                     {'type': 'image_url', 'image_url': {
-                        'url': 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Above_Gotham.jpg/320px-Above_Gotham.jpg',
+                        'url': f'data:image/png;base64,{_TINY_PNG_B64}',
                         'detail': 'low',
                     }},
                 ],
             }],
-            max_tokens=10,
+            max_tokens=5,
         )
         return {'status': 'ok', 'message': 'OpenAI Vision يعمل ✓', 'key_preview': _mask(key)}
     except Exception as e:
