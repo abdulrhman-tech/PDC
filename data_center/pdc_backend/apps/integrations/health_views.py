@@ -1,6 +1,6 @@
 """
 API Key Health Check — Bayt Alebaa PDC
-Public endpoint (keys are masked). Tests OpenAI, Kie.ai, Gemini, Remove.bg.
+Super-admin only. Tests OpenAI, Kie.ai, Gemini, Remove.bg keys with masked previews.
 """
 import logging
 from django.conf import settings
@@ -9,6 +9,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 logger = logging.getLogger(__name__)
+
+
+class IsSuperAdmin(IsAuthenticated):
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            return False
+        return hasattr(request.user, 'role') and request.user.role == 'super_admin'
 
 
 def _mask(key: str) -> str:
@@ -152,12 +159,12 @@ def _test_removebg() -> dict:
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsSuperAdmin])
 def api_health_check(request):
     """
     GET /api/v1/sap/health/
     Tests all AI/external API keys and returns their status.
-    Requires login (keys are masked — only first 8 + last 4 chars shown).
+    Super-admin only. Keys are masked (first 8 + last 4 chars).
     """
     results = {
         'openai_text': _test_openai_text(),
