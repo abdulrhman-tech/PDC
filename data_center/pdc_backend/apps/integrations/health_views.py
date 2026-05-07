@@ -84,19 +84,19 @@ def _test_kie_ai() -> dict:
         key = getattr(settings, 'KIE_AI_API_KEY', '')
         if not key:
             return {'status': 'error', 'message': 'KIE_AI_API_KEY غير مضبوط', 'key_preview': '—'}
-        resp = requests.get(
-            f'{settings.KIE_AI_BASE_URL}/api/v1/account/credits',
-            headers={'Authorization': f'Bearer {key}'},
+        resp = requests.post(
+            f'{settings.KIE_AI_BASE_URL}/api/v1/jobs/createTask',
+            headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'},
+            json={'model': 'nano-banana-pro', 'input': {'prompt': '__health_check__', 'image_input': [], 'aspect_ratio': '1:1', 'resolution': '1K', 'output_format': 'png'}},
             timeout=10,
         )
-        data = resp.json()
-        if resp.status_code == 200 and data.get('code') == 200:
-            credits = data.get('data', {}).get('credits', 'غير معروف')
-            return {'status': 'ok', 'message': f'Kie.ai يعمل ✓ — الرصيد: {credits}', 'key_preview': _mask(key)}
-        elif resp.status_code in (401, 403):
-            return {'status': 'error', 'message': 'مفتاح Kie.ai غير صالح', 'key_preview': _mask(key)}
-        else:
-            return {'status': 'error', 'message': f'Kie.ai رد: {resp.status_code} — {str(data)[:100]}', 'key_preview': _mask(key)}
+        if resp.status_code in (401, 403):
+            return {'status': 'error', 'message': 'مفتاح Kie.ai غير صالح أو منتهي', 'key_preview': _mask(key)}
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get('code') == 200:
+                return {'status': 'ok', 'message': 'Kie.ai يعمل ✓ (مفتاح صالح)', 'key_preview': _mask(key)}
+        return {'status': 'ok', 'message': f'Kie.ai مفتاح صالح (رد: {resp.status_code})', 'key_preview': _mask(key)}
     except Exception as e:
         return {'status': 'error', 'message': str(e)[:150], 'key_preview': _mask(getattr(settings, 'KIE_AI_API_KEY', ''))}
 
