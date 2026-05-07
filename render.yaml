@@ -29,7 +29,7 @@ services:
 
       # ── Redis (Upstash) ──────────────────────────────────────
       - key: REDIS_URL
-        sync: false
+        value: "rediss://default:gQAAAAAAAal7AAIgcDE3ZDcyOGM3MzExZGI0MWRkOTNjNTc0NTk0MDRmYTI3Zg@eminent-yak-108923.upstash.io:6379"
 
       # ── Cloudflare R2 ────────────────────────────────────────
       - key: R2_ACCESS_KEY_ID
@@ -65,4 +65,43 @@ services:
       - key: SAP_PROXY_URL
         sync: false
       - key: SAP_PROXY_SECRET
+        sync: false
+
+  # ── Celery Worker (background tasks: AI image generation, etc.) ──
+  - type: worker
+    name: bayt-alebaa-celery
+    runtime: python
+    pythonVersion: "3.11"
+    buildCommand: >
+      pip install --upgrade pip &&
+      pip install -r data_center/pdc_backend/requirements.txt
+    startCommand: >
+      cd data_center/pdc_backend &&
+      celery -A pdc_backend worker --loglevel=info --concurrency=2
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: pdc_backend.settings.production
+      - key: DEBUG
+        value: "False"
+      - key: NEON_DATABASE_URL
+        value: "postgresql://neondb_owner:npg_8XpNFuyj7AdM@ep-dry-breeze-a1buqqso-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+      - key: REDIS_URL
+        value: "rediss://default:gQAAAAAAAal7AAIgcDE3ZDcyOGM3MzExZGI0MWRkOTNjNTc0NTk0MDRmYTI3Zg@eminent-yak-108923.upstash.io:6379"
+      - key: SECRET_KEY
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_ENDPOINT_URL
+        sync: false
+      - key: R2_PUBLIC_URL
+        sync: false
+      - key: OPENAI_API_KEY_PDC
+        sync: false
+      - key: KIE_AI_API_KEY
+        sync: false
+      - key: REMOVEBG_API_KEY
         sync: false
