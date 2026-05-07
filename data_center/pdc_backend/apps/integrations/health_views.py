@@ -5,7 +5,7 @@ Public endpoint (keys are masked). Tests OpenAI, Kie.ai, Gemini, Remove.bg.
 import logging
 from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 logger = logging.getLogger(__name__)
@@ -152,12 +152,12 @@ def _test_removebg() -> dict:
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def api_health_check(request):
     """
     GET /api/v1/sap/health/
     Tests all AI/external API keys and returns their status.
-    Public (keys are masked — only first 8 + last 4 chars shown).
+    Requires login (keys are masked — only first 8 + last 4 chars shown).
     """
     results = {
         'openai_text': _test_openai_text(),
