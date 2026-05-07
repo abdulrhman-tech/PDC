@@ -24,11 +24,11 @@ services:
 
       # ── Database (Neon PostgreSQL pooler) ───────────────────
       - key: NEON_DATABASE_URL
-        value: "postgresql://neondb_owner:npg_8XpNFuyj7AdM@ep-dry-breeze-a1buqqso-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+        sync: false
 
       # ── Redis (Upstash) ──────────────────────────────────────
       - key: REDIS_URL
-        value: "rediss://default:gQAAAAAAAal7AAIgcDE3ZDcyOGM3MzExZGI0MWRkOTNjNTc0NTk0MDRmYTI3Zg@eminent-yak-108923.upstash.io:6379"
+        sync: false
 
       # ── Cloudflare R2 ────────────────────────────────────────
       - key: R2_ACCESS_KEY_ID
@@ -45,7 +45,7 @@ services:
         sync: false
 
       # ── AI APIs ──────────────────────────────────────────────
-      - key: OPENAI_API_KEY_PDC
+      - key: OPENAI_API_KEY
         sync: false
       - key: GEMINI_API_KEY
         sync: false
@@ -82,9 +82,9 @@ services:
       - key: DEBUG
         value: "False"
       - key: NEON_DATABASE_URL
-        value: "postgresql://neondb_owner:npg_8XpNFuyj7AdM@ep-dry-breeze-a1buqqso-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+        sync: false
       - key: REDIS_URL
-        value: "rediss://default:gQAAAAAAAal7AAIgcDE3ZDcyOGM3MzExZGI0MWRkOTNjNTc0NTk0MDRmYTI3Zg@eminent-yak-108923.upstash.io:6379"
+        sync: false
       - key: SECRET_KEY
         sync: false
       - key: R2_ACCESS_KEY_ID
@@ -96,8 +96,6 @@ services:
       - key: R2_ENDPOINT_URL
         sync: false
       - key: R2_PUBLIC_URL
-        sync: false
-      - key: OPENAI_API_KEY_PDC
         sync: false
       - key: OPENAI_API_KEY
         sync: false
