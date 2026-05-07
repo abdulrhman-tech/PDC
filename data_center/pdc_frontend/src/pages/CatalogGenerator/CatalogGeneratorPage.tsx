@@ -1066,7 +1066,7 @@ export default function CatalogGeneratorPage() {
                                                             {p.product_name_ar}
                                                         </span>
                                                         <button
-                                                            onClick={e => { e.stopPropagation(); toggleProduct(id) }}
+                                                            onClick={e => { e.stopPropagation(); toggleProduct(p) }}
                                                             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, flexShrink: 0, display: 'flex' }}
                                                         >
                                                             <X size={12} color="var(--color-text-muted)" />
