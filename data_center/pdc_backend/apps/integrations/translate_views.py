@@ -3,6 +3,7 @@ Translate API — Bayt Alebaa PDC
 Simple text translation endpoint backed by Gemini.
 """
 import logging
+from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -88,7 +89,7 @@ def translate_text_core(text: str, src: str, dst: str) -> tuple[str, str]:
     )
 
     gemini_error = None
-    if not _gemini_is_open():
+    if settings.GEMINI_API_KEY and not _gemini_is_open():
         try:
             result = call_gemini(prompt, config_key='flash')
             translated = result if isinstance(result, str) else str(result)
@@ -141,5 +142,7 @@ def translate_text(request):
         translated, provider = translate_text_core(text, src, dst)
         return Response({'translated': translated, 'provider': provider})
     except TranslateError as exc:
-        return Response({'error': exc.friendly},
-                        status=status.HTTP_502_BAD_GATEWAY)
+        return Response(
+            {'error': exc.friendly, 'detail': str(exc)[:300]},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
