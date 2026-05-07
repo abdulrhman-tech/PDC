@@ -99,7 +99,11 @@ services:
         sync: false
       - key: OPENAI_API_KEY_PDC
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: KIE_AI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
         sync: false
       - key: REMOVEBG_API_KEY
         sync: false
