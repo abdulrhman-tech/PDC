@@ -1,8 +1,9 @@
 from django.urls import path
-from apps.integrations import sap_views, translate_views, scheduler_views
+from apps.integrations import sap_views, translate_views, scheduler_views, health_views
 
 urlpatterns = [
     path('translate/', translate_views.translate_text, name='translate-text'),
+    path('health/', health_views.api_health_check, name='api-health-check'),
     path('scheduled-tasks/', scheduler_views.list_scheduled_tasks, name='sap-scheduled-tasks'),
     path('scheduled-tasks/<int:pk>/', scheduler_views.update_scheduled_task, name='sap-scheduled-task-update'),
     path('scheduled-tasks/<int:pk>/run-now/', scheduler_views.run_scheduled_task_now, name='sap-scheduled-task-run'),
