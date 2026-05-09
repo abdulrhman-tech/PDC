@@ -123,6 +123,16 @@ class ProductViewSet(viewsets.ModelViewSet):
 
         return qs
 
+    def filter_queryset(self, queryset):
+        qs = super().filter_queryset(queryset)
+        # `ordering=random` is not in ordering_fields so DRF's OrderingFilter
+        # ignores it and falls back to the default ordering.  We then override
+        # with PostgreSQL RANDOM() so the public catalog shows a mix of
+        # categories instead of all items from one category grouped together.
+        if self.request.query_params.get('ordering') == 'random':
+            qs = qs.order_by('?')
+        return qs
+
     def get_serializer_class(self):
         if self.action == 'list':
             return ProductListSerializer
