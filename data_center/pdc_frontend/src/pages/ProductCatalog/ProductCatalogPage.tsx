@@ -473,6 +473,35 @@ export default function ProductCatalogPage() {
     const products: Product[] = infiniteData?.pages?.flatMap((p: any) => p.results ?? []) ?? []
     const totalCount = (infiniteData?.pages?.[0] as any)?.count ?? 0
 
+    /* ── Session-stable shuffle seed ──────────────────────────────────
+     *  Generated once per browser session and stored in sessionStorage
+     *  so the random order stays consistent while scrolling / loading
+     *  more pages, but resets on a new visit.
+     *  We only shuffle when no category filter is active ("الكل") so
+     *  the user gets variety across categories.  When a specific
+     *  category is chosen the order is left as-is. ─── */
+    const sessionSeed = useMemo(() => {
+        const key = 'catalog-shuffle-seed'
+        const saved = sessionStorage.getItem(key)
+        if (saved) return Number(saved)
+        const seed = Math.floor(Math.random() * 0x7fffffff)
+        sessionStorage.setItem(key, String(seed))
+        return seed
+    }, [])
+
+    const displayedProducts = useMemo((): Product[] => {
+        if (products.length === 0) return products
+        // Only shuffle when browsing "الكل" (no category filter)
+        if (filters.category) return products
+        // Hash each product ID with the seed using a simple multiplicative hash
+        // so every product's position is deterministic (no reordering on scroll)
+        return [...products].sort((a, b) => {
+            const ha = (((a.id ^ sessionSeed) * 2654435761) >>> 0)
+            const hb = (((b.id ^ sessionSeed) * 2654435761) >>> 0)
+            return ha - hb
+        })
+    }, [products, sessionSeed, filters.category])
+
     /* ── Derived: unique colors & countries from current products ── */
     const allColors   = [...new Set(products.map(p => p.color).filter(Boolean))]
     const allCountries = [...new Set(products.map(p => p.origin_country).filter(Boolean))]
@@ -1190,7 +1219,7 @@ export default function ProductCatalogPage() {
                         {RATIOS.map((r, i) => <SkeletonCard key={i} ratio={r} />)}
                     </div>
 
-                ) : products.length === 0 ? (
+                ) : displayedProducts.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '100px 0' }}>
                         <Search
                             size={44} strokeWidth={1}
@@ -1222,7 +1251,7 @@ export default function ProductCatalogPage() {
 
                 ) : (
                     <div style={{ columns: `${effectiveCols} ${colMinWidth}`, columnGap: 4 }}>
-                        {products.map((product, idx) => (
+                        {displayedProducts.map((product, idx) => (
                             <ProductCard
                                 key={product.id}
                                 product={product}
@@ -1259,7 +1288,7 @@ export default function ProductCatalogPage() {
                     </span>
                 </div>
             )}
-            {!hasNextPage && products.length > 0 && (
+            {!hasNextPage && displayedProducts.length > 0 && (
                 <div style={{
                     textAlign: 'center',
                     padding: '24px 0 40px',
