@@ -280,7 +280,7 @@ export default function ProductCatalogPage() {
         pickBilingual(c.name_ar, c.name_en, isAr)
 
     /* ── Core state ── */
-    const [filters, setFilters] = useState<ProductFilters>({ page_size: 24, status: 'نشط' })
+    const [filters, setFilters] = useState<ProductFilters>({ page_size: 24, status: 'نشط', ordering: 'random' })
     const [search, setSearch] = useState('')
     const [searchFocused, setSearchFocused] = useState(false)
     const [hoverCatId, setHoverCatId] = useState<number | null>(null)
@@ -473,34 +473,9 @@ export default function ProductCatalogPage() {
     const products: Product[] = infiniteData?.pages?.flatMap((p: any) => p.results ?? []) ?? []
     const totalCount = (infiniteData?.pages?.[0] as any)?.count ?? 0
 
-    /* ── Session-stable shuffle seed ──────────────────────────────────
-     *  Generated once per browser session and stored in sessionStorage
-     *  so the random order stays consistent while scrolling / loading
-     *  more pages, but resets on a new visit.
-     *  We only shuffle when no category filter is active ("الكل") so
-     *  the user gets variety across categories.  When a specific
-     *  category is chosen the order is left as-is. ─── */
-    const sessionSeed = useMemo(() => {
-        const key = 'catalog-shuffle-seed'
-        const saved = sessionStorage.getItem(key)
-        if (saved) return Number(saved)
-        const seed = Math.floor(Math.random() * 0x7fffffff)
-        sessionStorage.setItem(key, String(seed))
-        return seed
-    }, [])
-
-    const displayedProducts = useMemo((): Product[] => {
-        if (products.length === 0) return products
-        // Only shuffle when browsing "الكل" (no category filter)
-        if (filters.category) return products
-        // Hash each product ID with the seed using a simple multiplicative hash
-        // so every product's position is deterministic (no reordering on scroll)
-        return [...products].sort((a, b) => {
-            const ha = (((a.id ^ sessionSeed) * 2654435761) >>> 0)
-            const hb = (((b.id ^ sessionSeed) * 2654435761) >>> 0)
-            return ha - hb
-        })
-    }, [products, sessionSeed, filters.category])
+    /* ── displayedProducts: backend now handles ordering=random, so we
+     *  just pass through the fetched list as-is. ─── */
+    const displayedProducts = products
 
     /* ── Derived: unique colors & countries from current products ── */
     const allColors   = [...new Set(products.map(p => p.color).filter(Boolean))]
@@ -530,6 +505,7 @@ export default function ProductCatalogPage() {
             page: 1,
             page_size: f.page_size,
             category: f.category,
+            ordering: f.category ? undefined : 'random',
         }))
         setLocalPriceMin('')
         setLocalPriceMax('')
@@ -812,7 +788,7 @@ export default function ProductCatalogPage() {
                     scrollbarWidth: 'none',
                 }}>
                     <button
-                        onClick={() => setFilters(f => ({ ...f, category: undefined, page: 1 }))}
+                        onClick={() => setFilters(f => ({ ...f, category: undefined, ordering: 'random', page: 1 }))}
                         style={{
                             flexShrink: 0,
                             padding: screenWidth <= 640 ? '6px 12px' : '8px 18px',
@@ -838,7 +814,7 @@ export default function ProductCatalogPage() {
                         return (
                             <button
                                 key={c.id}
-                                onClick={() => setFilters(f => ({ ...f, category: String(c.id), page: 1 }))}
+                                onClick={() => setFilters(f => ({ ...f, category: String(c.id), ordering: undefined, page: 1 }))}
                                 onMouseEnter={e => children2.length > 0 ? openCatDropdown(c.id, e.currentTarget) : undefined}
                                 onMouseLeave={() => children2.length > 0 ? closeCatDropdown() : undefined}
                                 style={{
@@ -1337,7 +1313,7 @@ export default function ProductCatalogPage() {
                     >
                         {/* All parent */}
                         <button
-                            onClick={() => { setFilters(f => ({ ...f, category: String(cat.id), page: 1 })); setHoverCatId(null); setDropdownRect(null) }}
+                            onClick={() => { setFilters(f => ({ ...f, category: String(cat.id), ordering: undefined, page: 1 })); setHoverCatId(null); setDropdownRect(null) }}
                             style={{
                                 display: 'block', width: '100%', textAlign: 'right',
                                 padding: '8px 12px', background: 'none', border: 'none',
@@ -1354,7 +1330,7 @@ export default function ProductCatalogPage() {
                         {kids.map(child => (
                             <button
                                 key={child.id}
-                                onClick={() => { setFilters(f => ({ ...f, category: String(child.id), page: 1 })); setHoverCatId(null); setDropdownRect(null) }}
+                                onClick={() => { setFilters(f => ({ ...f, category: String(child.id), ordering: undefined, page: 1 })); setHoverCatId(null); setDropdownRect(null) }}
                                 style={{
                                     display: 'block', width: '100%', textAlign: 'right',
                                     padding: '9px 12px', background: 'none', border: 'none',
