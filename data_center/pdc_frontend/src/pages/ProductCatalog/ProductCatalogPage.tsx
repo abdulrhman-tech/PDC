@@ -2,7 +2,7 @@
  * Product Catalog Page — Inspiration Gallery
  * Dark full-width masonry layout + collapsible filter panel
  */
-import { useState, useCallback, useEffect, useRef, memo } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
