@@ -349,46 +349,33 @@ function ExportModal({ onClose, categories }: { onClose: () => void; categories:
     const handleExport = async () => {
         setExporting(true)
         try {
-            const params: Record<string, string> = { page_size: '10000' }
-            if (exportCat) params.category = exportCat
-            if (exportStatus) params.status = exportStatus
-            if (exportStock) params.inventory_type = exportStock
-            if (exportImages !== '') params.has_images = exportImages
-            const res = await productsAPI.list(params)
-            const products: Product[] = res.data.results || res.data || []
+            const params: Record<string, string> = {}
+            if (exportCat)           params.category        = exportCat
+            if (exportStatus)        params.status          = exportStatus
+            if (exportStock)         params.inventory_type  = exportStock
+            if (exportImages !== '') params.has_images      = exportImages
 
-            if (products.length === 0) {
-                toast.warning('لا توجد منتجات تطابق الفلاتر المحددة')
-                setExporting(false)
-                return
-            }
+            // Backend endpoint — bypasses pagination, includes attributes + image URL
+            const res = await productsAPI.exportCsv(params)
 
-            const headers = ['SKU', 'اسم المنتج', 'التصنيف', 'الماركة', 'بلد المنشأ', 'الحالة', 'نوع المخزون', 'اللون', 'تاريخ الإضافة']
-            const BOM = '\uFEFF'
-            const csvRows = [headers.join(',')]
-            for (const p of products) {
-                const row = [
-                    p.sku,
-                    `"${(p.product_name_ar || '').replace(/"/g, '""')}"`,
-                    `"${(p.category_name || '').replace(/"/g, '""')}"`,
-                    `"${(p.brand_name || '').replace(/"/g, '""')}"`,
-                    `"${(p.origin_country || '').replace(/"/g, '""')}"`,
-                    p.status,
-                    p.inventory_type || '',
-                    `"${(p.color || '').replace(/"/g, '""')}"`,
-                    p.created_at?.split('T')[0] || '',
-                ]
-                csvRows.push(row.join(','))
-            }
-            const blob = new Blob([BOM + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
+            // The server returns the CSV blob directly
+            const blob: Blob = res.data instanceof Blob
+                ? res.data
+                : new Blob([res.data], { type: 'text/csv;charset=utf-8;' })
+
             const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
+            const a   = document.createElement('a')
+            a.href    = url
             const dateSuffix = new Date().toISOString().split('T')[0]
             a.download = `products_export_${dateSuffix}.csv`
             a.click()
             URL.revokeObjectURL(url)
-            toast.success(`تم تصدير ${products.length} منتج بنجاح`)
+
+            // Server sends X-Total-Products header with exact count
+            const total = res.headers?.['x-total-products']
+            toast.success(total
+                ? `تم تصدير ${Number(total).toLocaleString('ar')} منتج بنجاح`
+                : 'تم تصدير المنتجات بنجاح')
             onClose()
         } catch {
             toast.error('فشل تصدير المنتجات')
