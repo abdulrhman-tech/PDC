@@ -736,6 +736,10 @@ class ProductViewSet(viewsets.ModelViewSet):
         if not excel_file:
             return Response({'detail': 'لم يُرفع أي ملف'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # 'create' → reject existing SKUs (default, current behaviour)
+        # 'update' → update existing products, skip unknown SKUs with error
+        mode = request.data.get('mode', 'create')
+
         category_id = request.data.get('category_id')
         fixed_cat = None
         attr_schemas = {}
@@ -797,12 +801,33 @@ class ProductViewSet(viewsets.ModelViewSet):
                 brands_map[b.name_ar] = b
             brands_map[b.name] = b
 
-        # Pre-fetch ALL existing SKUs in one query (avoids N+1 per row)
-        existing_skus = set(Product.objects.values_list('sku', flat=True))
+        # ── Pre-fetch: collect all SKUs from the file first ──────────────
+        # Then load matching DB rows in one chunked query.
+        _all_file_skus: set[str] = set()
+        for _row in rows[2:]:
+            _s = str(_row[keys.index('sku')] if 'sku' in keys else '').strip() if keys else ''
+            # safer: iterate keys to find sku column index
+            try:
+                _sku_idx = keys.index('sku')
+                _s = str(_row[_sku_idx]).strip() if _sku_idx < len(_row) and _row[_sku_idx] else ''
+            except (ValueError, IndexError):
+                _s = ''
+            if _s:
+                _all_file_skus.add(_s)
+
+        # existing_map is used in update mode; existing_skus set used in create mode
+        existing_map: dict[str, 'Product'] = {}
+        _skus_list = list(_all_file_skus)
+        for _i in range(0, len(_skus_list), 1000):
+            for _p in Product.objects.filter(sku__in=_skus_list[_i:_i + 1000]):
+                existing_map[_p.sku] = _p
+        existing_skus = set(existing_map.keys())
 
         to_create = []       # Product instances for bulk_create
-        created_meta = []    # parallel list: {row, sku, name} for response
-        pending_skus = set() # SKUs queued this batch (catch in-file duplicates)
+        to_update = []       # existing Product instances (mutated)
+        created_meta = []
+        updated_meta = []
+        pending_skus: set[str] = set()  # catch in-file duplicates
         errors = []
 
         for row_num, row in enumerate(rows[2:], start=3):
@@ -820,8 +845,6 @@ class ProductViewSet(viewsets.ModelViewSet):
             row_errors = []
             if not sku:
                 row_errors.append('رمز المنتج (SKU) مطلوب')
-            if not name_ar:
-                row_errors.append('اسم المنتج (عربي) مطلوب')
 
             # Resolve category
             if fixed_cat:
@@ -829,17 +852,27 @@ class ProductViewSet(viewsets.ModelViewSet):
             else:
                 cat_slug = row_data.get('category_slug', '').strip()
                 if not cat_slug:
-                    row_errors.append('التصنيف مطلوب')
-                    cat_obj = None
+                    cat_obj = None  # allowed in update mode (keep existing cat)
                 elif cat_slug not in cats:
                     row_errors.append(f'التصنيف "{cat_slug}" غير موجود')
                     cat_obj = None
                 else:
                     cat_obj = cats[cat_slug]
 
-            # Single set-lookup instead of a per-row DB query
-            if sku and (sku in existing_skus or sku in pending_skus):
-                row_errors.append(f'الـ SKU "{sku}" موجود مسبقاً')
+            if mode == 'create':
+                if not name_ar:
+                    row_errors.append('اسم المنتج (عربي) مطلوب')
+                if not cat_obj and not fixed_cat:
+                    row_errors.append('التصنيف مطلوب')
+                # Reject duplicate SKUs in create mode
+                if sku and (sku in existing_skus or sku in pending_skus):
+                    row_errors.append(f'الـ SKU "{sku}" موجود مسبقاً')
+            else:  # update mode
+                # SKU must exist in DB
+                if sku and sku not in existing_skus:
+                    row_errors.append(f'الـ SKU "{sku}" غير موجود في النظام')
+                if sku and sku in pending_skus:
+                    row_errors.append(f'الـ SKU "{sku}" مكرر في الملف')
 
             if row_errors:
                 errors.append({'row': row_num, 'sku': sku or '—', 'errors': row_errors})
@@ -852,45 +885,83 @@ class ProductViewSet(viewsets.ModelViewSet):
                 except ValueError:
                     price = None
 
-                obj = Product(
-                    sku=sku,
-                    product_name_ar=name_ar,
-                    product_name_en=row_data.get('product_name_en', ''),
-                    category=cat_obj,
-                    description_ar=row_data.get('description_ar', ''),
-                    status=row_data.get('status', 'مسودة') or 'مسودة',
-                    inventory_type=row_data.get('inventory_type', 'دوري') or 'دوري',
-                    origin_country=row_data.get('origin_country', ''),
-                    color=row_data.get('color', ''),
-                    ecommerce_url=row_data.get('ecommerce_url', ''),
-                    created_by=request.user,
-                    updated_by=request.user,
-                )
-                if price is not None:
-                    obj.price_sar = price
-
                 brand_name = row_data.get('brand_name', '').strip()
-                if brand_name and brand_name in brands_map:
-                    obj.brand = brands_map[brand_name]
+                brand_obj = brands_map.get(brand_name) if brand_name else None
 
                 attributes = {}
                 for col_key, attr_key in attr_schemas.items():
                     val = row_data.get(col_key, '').strip()
                     if val:
                         attributes[attr_key] = val
-                if attributes:
-                    obj.attributes = attributes
 
-                to_create.append(obj)
-                pending_skus.add(sku)
-                created_meta.append({'row': row_num, 'sku': sku, 'name': name_ar})
+                if mode == 'update':
+                    existing = existing_map[sku]
+                    if name_ar:
+                        existing.product_name_ar = name_ar
+                    if row_data.get('product_name_en'):
+                        existing.product_name_en = row_data['product_name_en']
+                    if cat_obj:
+                        existing.category = cat_obj
+                    if row_data.get('description_ar'):
+                        existing.description_ar = row_data['description_ar']
+                    if row_data.get('description_en'):
+                        existing.description_en = row_data['description_en']
+                    if row_data.get('status'):
+                        existing.status = row_data['status']
+                    if row_data.get('inventory_type'):
+                        existing.inventory_type = row_data['inventory_type']
+                    if row_data.get('origin_country'):
+                        existing.origin_country = row_data['origin_country']
+                    if row_data.get('color'):
+                        existing.color = row_data['color']
+                    if row_data.get('ecommerce_url'):
+                        existing.ecommerce_url = row_data['ecommerce_url']
+                    if price is not None:
+                        existing.price_sar = price
+                    if brand_obj:
+                        existing.brand = brand_obj
+                    if attributes:
+                        merged = dict(existing.attributes or {})
+                        merged.update(attributes)
+                        existing.attributes = merged
+                    existing.updated_by = request.user
+                    to_update.append(existing)
+                    pending_skus.add(sku)
+                    updated_meta.append({'row': row_num, 'sku': sku,
+                                         'name': existing.product_name_ar, 'id': existing.id})
+                else:
+                    obj = Product(
+                        sku=sku,
+                        product_name_ar=name_ar,
+                        product_name_en=row_data.get('product_name_en', ''),
+                        category=cat_obj,
+                        description_ar=row_data.get('description_ar', ''),
+                        status=row_data.get('status', 'مسودة') or 'مسودة',
+                        inventory_type=row_data.get('inventory_type', 'دوري') or 'دوري',
+                        origin_country=row_data.get('origin_country', ''),
+                        color=row_data.get('color', ''),
+                        ecommerce_url=row_data.get('ecommerce_url', ''),
+                        created_by=request.user,
+                        updated_by=request.user,
+                    )
+                    if price is not None:
+                        obj.price_sar = price
+                    if brand_obj:
+                        obj.brand = brand_obj
+                    if attributes:
+                        obj.attributes = attributes
+                    to_create.append(obj)
+                    pending_skus.add(sku)
+                    created_meta.append({'row': row_num, 'sku': sku, 'name': name_ar})
             except Exception as e:
                 errors.append({'row': row_num, 'sku': sku, 'errors': [str(e)]})
 
-        # ── Bulk-insert all valid rows in one DB round-trip ───────────────
+        # ── Bulk DB operations ────────────────────────────────────────────
         import logging as _log
         _RESPONSE_CAP = 500
         created = []
+        updated = []
+
         if to_create:
             try:
                 inserted = Product.objects.bulk_create(to_create, batch_size=500)
@@ -908,21 +979,44 @@ class ProductViewSet(viewsets.ModelViewSet):
                     except Exception as row_exc:
                         errors.append({'row': meta['row'], 'sku': meta['sku'], 'errors': [str(row_exc)]})
 
+        if to_update:
+            _update_fields = [
+                'product_name_ar', 'product_name_en', 'category',
+                'description_ar', 'description_en',
+                'status', 'inventory_type', 'origin_country',
+                'color', 'ecommerce_url', 'price_sar',
+                'brand', 'attributes', 'updated_by',
+            ]
+            try:
+                Product.objects.bulk_update(to_update, _update_fields, batch_size=500)
+                updated = updated_meta
+            except Exception as bulk_exc:
+                _log.getLogger(__name__).error(f'bulk_update failed, falling back row-by-row: {bulk_exc}')
+                for obj, meta in zip(to_update, updated_meta):
+                    try:
+                        obj.save()
+                        updated.append(meta)
+                    except Exception as row_exc:
+                        errors.append({'row': meta['row'], 'sku': meta['sku'], 'errors': [str(row_exc)]})
+
         total_rows_in_file = len(rows)
         data_rows_seen = max(0, total_rows_in_file - 2)  # rows 1+2 are header
         log_action(request.user, 'excel_import', None,
-                   f'استيراد Excel: {len(created)} منتج مضاف، '
+                   f'استيراد Excel ({mode}): {len(created)} جديد، {len(updated)} محدّث، '
                    f'{len(errors)} خطأ، إجمالي صفوف الملف: {total_rows_in_file}',
                    request)
 
         return Response({
+            'mode': mode,
             'created_count': len(created),
+            'updated_count': len(updated),
             'error_count': len(errors),
             'total_rows_in_file': total_rows_in_file,
             'data_rows_seen': data_rows_seen,
             'created': created[:_RESPONSE_CAP],
+            'updated': updated[:_RESPONSE_CAP],
             'errors': errors[:_RESPONSE_CAP],
-            'truncated': len(created) > _RESPONSE_CAP or len(errors) > _RESPONSE_CAP,
+            'truncated': (len(created) + len(updated)) > _RESPONSE_CAP or len(errors) > _RESPONSE_CAP,
         })
 
     def _import_sap_excel(self, request, rows, headers):
