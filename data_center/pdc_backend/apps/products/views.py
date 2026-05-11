@@ -396,6 +396,105 @@ class ProductViewSet(viewsets.ModelViewSet):
     # methods without authentication, so no permission_classes override
     # is needed — GET requests stay public.
 
+    @action(detail=False, methods=['get'], url_path='export-csv',
+            permission_classes=[permissions.IsAuthenticated])
+    def export_csv(self, request):
+        """Export all matching products (with filters) as a UTF-8 CSV file.
+
+        Bypasses pagination — always returns every matching product.
+        Columns: core fields + approved main image URL + all dynamic
+        attribute keys found across the result set.
+        """
+        import csv
+        import io
+        from django.http import HttpResponse
+        from django.conf import settings as django_settings
+        from apps.images.models import ProductImage
+
+        qs = self.filter_queryset(self.get_queryset())
+
+        # 1 ── Fetch all products via values() — fastest for large sets
+        products = list(qs.order_by('created_at').values(
+            'id', 'sku',
+            'product_name_ar', 'product_name_en',
+            'category__name_ar', 'brand__name_ar',
+            'origin_country', 'status', 'inventory_type',
+            'color', 'price_sar',
+            'description_ar', 'description_en',
+            'ecommerce_url', 'created_at', 'attributes',
+        ))
+
+        if not products:
+            return HttpResponse(
+                '\ufeffSKU\nلا توجد منتجات'.encode('utf-8'),
+                content_type='text/csv; charset=utf-8-sig',
+            )
+
+        product_ids = [p['id'] for p in products]
+
+        # 2 ── Build approved main image URL map in a single query
+        r2_base = getattr(django_settings, 'R2_PUBLIC_URL', '').rstrip('/')
+        image_urls: dict[int, str] = {}
+        for img in (ProductImage.objects
+                    .filter(product_id__in=product_ids, status='approved')
+                    .order_by('product_id', 'order', 'id')
+                    .values('product_id', 'image_type', 'r2_key', 'r2_url')):
+            pid = img['product_id']
+            url = f"{r2_base}/{img['r2_key']}" if img.get('r2_key') else (img.get('r2_url') or '')
+            if pid not in image_urls:
+                image_urls[pid] = url           # first approved → fallback
+            elif img['image_type'] == 'main':
+                image_urls[pid] = url           # upgrade to main image
+
+        # 3 ── Collect all unique attribute keys in order of first appearance
+        attr_keys: list[str] = []
+        seen_keys: set[str] = set()
+        for p in products:
+            for k in (p.get('attributes') or {}):
+                if k not in seen_keys:
+                    attr_keys.append(k)
+                    seen_keys.add(k)
+
+        # 4 ── Build CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            'SKU', 'الاسم (عربي)', 'الاسم (إنجليزي)',
+            'التصنيف', 'الماركة', 'بلد المنشأ',
+            'الحالة', 'نوع المخزون', 'اللون',
+            'السعر (ريال)', 'رابط الصورة الرئيسية',
+            'الوصف (عربي)', 'الوصف (إنجليزي)',
+            'رابط المتجر الإلكتروني', 'تاريخ الإضافة',
+        ] + attr_keys)
+
+        for p in products:
+            attrs = p.get('attributes') or {}
+            writer.writerow([
+                p['sku'],
+                p['product_name_ar'] or '',
+                p['product_name_en'] or '',
+                p['category__name_ar'] or '',
+                p['brand__name_ar'] or '',
+                p['origin_country'] or '',
+                p['status'] or '',
+                p['inventory_type'] or '',
+                p['color'] or '',
+                str(p['price_sar']) if p['price_sar'] is not None else '',
+                image_urls.get(p['id'], ''),
+                p['description_ar'] or '',
+                p['description_en'] or '',
+                p['ecommerce_url'] or '',
+                p['created_at'].strftime('%Y-%m-%d') if p['created_at'] else '',
+            ] + [str(attrs.get(k, '')) for k in attr_keys])
+
+        from django.utils import timezone as tz
+        date_str = tz.now().strftime('%Y-%m-%d')
+        csv_bytes = ('\ufeff' + output.getvalue()).encode('utf-8')
+        response = HttpResponse(csv_bytes, content_type='text/csv; charset=utf-8-sig')
+        response['Content-Disposition'] = f'attachment; filename="products_export_{date_str}.csv"'
+        response['X-Total-Products'] = str(len(products))
+        return response
+
     @action(detail=False, methods=['get'], url_path='ids')
     def ids(self, request):
         """Return only the IDs of products matching current filters.
