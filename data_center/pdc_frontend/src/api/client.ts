@@ -74,6 +74,8 @@ export const productsAPI = {
     updateImage: (productId: number, imageId: number, data: object) =>
         api.patch(`/products/${productId}/images/${imageId}/`, data),
     listIds: (params?: object) => api.get('/products/ids/', { params }),
+    exportCsv: (params?: object) =>
+        api.get('/products/export-csv/', { params, responseType: 'blob', timeout: 300000 }),
     importExcel: (formData: FormData) =>
         api.post('/products/import-excel/', formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
