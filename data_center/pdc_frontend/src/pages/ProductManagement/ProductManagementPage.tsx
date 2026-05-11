@@ -66,6 +66,7 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
     const [importing, setImporting] = useState(false)
     const [downloading, setDownloading] = useState(false)
     const [selectedCatId, setSelectedCatId] = useState<string>('')
+    const [mode, setMode] = useState<'create' | 'update'>('create')
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     const { data: catsData } = useQuery({
@@ -113,6 +114,7 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
         setResult(null)
         const fd = new FormData()
         fd.append('file', file)
+        fd.append('mode', mode)
         if (selectedCatId) fd.append('category_id', selectedCatId)
         try {
             const res = await productsAPI.importExcel(fd)
@@ -168,6 +170,27 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
                     <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4 }}>
                         <X size={18} />
                     </button>
+                </div>
+
+                {/* Mode toggle */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                    {([
+                        { val: 'create', label: '➕ إضافة منتجات جديدة', desc: 'يرفض SKU موجود مسبقاً' },
+                        { val: 'update', label: '✏️ تحديث منتجات موجودة', desc: 'يحدّث البيانات بحسب SKU' },
+                    ] as const).map(opt => (
+                        <button key={opt.val} onClick={() => { setMode(opt.val); setResult(null) }}
+                            style={{
+                                flex: 1, padding: '10px 12px', borderRadius: 9, cursor: 'pointer',
+                                border: mode === opt.val ? '1.5px solid var(--color-gold)' : '1px solid var(--color-border-strong)',
+                                background: mode === opt.val ? 'rgba(200,168,75,0.10)' : 'var(--color-surface-hover)',
+                                fontFamily: 'inherit', textAlign: 'center',
+                            }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: mode === opt.val ? 'var(--color-gold)' : 'var(--color-text-primary)', marginBottom: 2 }}>
+                                {opt.label}
+                            </div>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{opt.desc}</div>
+                        </button>
+                    ))}
                 </div>
 
                 {/* SAP file note */}
@@ -285,13 +308,27 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
                                 </span>
                             </div>
                         )}
-                        <div style={{ display: 'flex' }}>
-                            <div style={{ flex: 1, padding: '14px 16px', background: result.created_count > 0 ? 'rgba(39,174,96,0.08)' : 'var(--color-surface-raised)', borderLeft: '1px solid var(--color-border)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#27AE60', fontWeight: 700, fontSize: 14 }}>
-                                    <CheckCircle2 size={16} /> {result.created_count} منتج أُضيف بنجاح
+                        <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+                            {result.created_count > 0 && (
+                                <div style={{ flex: 1, minWidth: 140, padding: '14px 16px', background: 'rgba(39,174,96,0.08)', borderLeft: '1px solid var(--color-border)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#27AE60', fontWeight: 700, fontSize: 14 }}>
+                                        <CheckCircle2 size={16} /> {result.created_count} منتج أُضيف
+                                    </div>
                                 </div>
-                            </div>
-                            <div style={{ flex: 1, padding: '14px 16px', background: result.error_count > 0 ? 'rgba(231,76,60,0.08)' : 'var(--color-surface-raised)' }}>
+                            )}
+                            {(result.updated_count ?? 0) > 0 && (
+                                <div style={{ flex: 1, minWidth: 140, padding: '14px 16px', background: 'rgba(59,130,246,0.08)', borderLeft: '1px solid var(--color-border)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#3B82F6', fontWeight: 700, fontSize: 14 }}>
+                                        <CheckCircle2 size={16} /> {result.updated_count} منتج حُدِّث
+                                    </div>
+                                </div>
+                            )}
+                            {result.created_count === 0 && (result.updated_count ?? 0) === 0 && result.error_count === 0 && (
+                                <div style={{ flex: 1, minWidth: 140, padding: '14px 16px', background: 'var(--color-surface-raised)', borderLeft: '1px solid var(--color-border)' }}>
+                                    <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>لا توجد تغييرات</div>
+                                </div>
+                            )}
+                            <div style={{ flex: 1, minWidth: 140, padding: '14px 16px', background: result.error_count > 0 ? 'rgba(231,76,60,0.08)' : 'var(--color-surface-raised)' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: result.error_count > 0 ? '#E74C3C' : 'var(--color-text-muted)', fontWeight: 700, fontSize: 14 }}>
                                     <XCircle size={16} /> {result.error_count} صف به أخطاء
                                 </div>
@@ -319,6 +356,16 @@ function ImportExcelModal({ onClose, onSuccess }: { onClose: () => void; onSucce
                                 {result.created.map((c, i) => (
                                     <div key={i} style={{ fontSize: 11, color: 'var(--color-text-secondary)', padding: '2px 0', borderBottom: '1px solid var(--color-border)' }}>
                                         <span style={{ color: '#27AE60', marginLeft: 6 }}>✓</span>{c.sku} — {c.name}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        {(result.updated ?? []).length > 0 && (
+                            <div style={{ padding: '10px 16px', borderTop: '1px solid var(--color-border)', maxHeight: 150, overflowY: 'auto' }}>
+                                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6, fontWeight: 600 }}>المنتجات المحدَّثة (أول 500)</div>
+                                {(result.updated ?? []).map((c, i) => (
+                                    <div key={i} style={{ fontSize: 11, color: 'var(--color-text-secondary)', padding: '2px 0', borderBottom: '1px solid var(--color-border)' }}>
+                                        <span style={{ color: '#3B82F6', marginLeft: 6 }}>↻</span>{c.sku} — {c.name}
                                     </div>
                                 ))}
                             </div>
